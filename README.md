@@ -102,3 +102,4 @@ def classify_document(text: str) -> str:
         return "labor_inspection"
     
     return "other"
+ 
