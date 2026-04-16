@@ -5,7 +5,7 @@ from fastapi import FastAPI, UploadFile, File, Form, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from dotenv import load_dotenv
 
-from src.document_classifier import classify_document
+from src.classifiers.rule_based import RuleBasedClassifier
 from src.ai_generator import generate_answer
 from src.ocr.extractor import extract_text_from_file
 
@@ -24,6 +24,8 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+classifier = RuleBasedClassifier()
+
 
 @app.get("/api/health")
 async def health_check():
@@ -38,8 +40,6 @@ async def process_request(
     inn: str = Form(...),
     document_type: str = Form("auto")
 ):
-    """Генерация ответа на входящий документ"""
-
     request_text = None
 
     if file and file.filename:
@@ -60,21 +60,17 @@ async def process_request(
         request_text = manual_text
 
     else:
-        raise HTTPException(
-            status_code=400,
-            detail="Необходимо загрузить файл или ввести текст запроса"
-        )
+        raise HTTPException(status_code=400, detail="Необходимо загрузить файл или ввести текст")
 
     if not request_text or len(request_text.strip()) < 10:
-        raise HTTPException(
-            status_code=400,
-            detail="Не удалось распознать текст. Попробуйте загрузить более качественный файл."
-        )
+        raise HTTPException(status_code=400, detail="Не удалось распознать текст")
 
     if document_type == "auto":
-        doc_type = classify_document(request_text)
+        doc_type = classifier.predict(request_text)
+        confidence = classifier.predict_with_confidence(request_text)[1]
     else:
         doc_type = document_type
+        confidence = 1.0
 
     answer = generate_answer(request_text, company_name, inn, doc_type)
 
@@ -82,6 +78,7 @@ async def process_request(
         "request_id": str(uuid.uuid4()),
         "timestamp": datetime.now().isoformat(),
         "document_type": doc_type,
+        "confidence": confidence,
         "company_name": company_name,
         "inn": inn,
         "request_text": request_text[:500] + "..." if len(request_text) > 500 else request_text,

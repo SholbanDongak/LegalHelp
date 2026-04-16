@@ -5,3 +5,16 @@ __pycache__/
 .DS_Store
 .pytest_cache/
 *.save
+
+# ML models (слишком большие для Git)
+*.pth
+*.pt
+*.bin
+*.h5
+models/
+checkpoints/
+
+# macOS specific
+.DS_Store
+.AppleDouble
+.LSOverride
