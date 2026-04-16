@@ -4,11 +4,7 @@ import os
 import pdfplumber
 from PIL import Image
 import pytesseract
-from typing import Optional
 
-# Для корректной работы Tesseract на macOS может потребоваться указать путь
-# Если возникает ошибка, раскомментируйте строку ниже и укажите путь к tesseract
-# pytesseract.pytesseract.tesseract_cmd = "/usr/local/bin/tesseract"
 
 def extract_text_from_pdf(file_path: str) -> str:
     """Извлекает текст из PDF-файла"""
@@ -23,21 +19,22 @@ def extract_text_from_pdf(file_path: str) -> str:
         print(f"Ошибка при чтении PDF: {e}")
     return text.strip()
 
+
 def extract_text_from_image(file_path: str) -> str:
     """Извлекает текст из изображения через Tesseract OCR"""
     try:
         image = Image.open(file_path)
-        # Используем русский язык
         text = pytesseract.image_to_string(image, lang="rus")
         return text.strip()
     except Exception as e:
         print(f"Ошибка при распознавании изображения: {e}")
         return ""
 
+
 def extract_text_from_file(file_path: str) -> str:
     """Определяет тип файла и извлекает текст"""
     ext = os.path.splitext(file_path)[1].lower()
-    
+
     if ext == '.pdf':
         return extract_text_from_pdf(file_path)
     elif ext in ['.png', '.jpg', '.jpeg', '.tiff', '.bmp']:
