@@ -1,12 +1,29 @@
+# Core
 fastapi==0.115.0
 uvicorn[standard]==0.30.0
 python-dotenv==1.0.0
+
+# Database
 psycopg2-binary==2.9.9
 sqlalchemy==2.0.35
+alembic==1.13.0
+
+# OCR
 easyocr==1.7.1
 pdfplumber==0.11.0
 pillow==10.4.0
-yandexcloud==0.300.0
-requests==2.32.0
+
+# AI / LLM (YandexGPT) - без указания конкретной версии requests
+yandexcloud>=0.300.0
+requests>=2.32.3
+
+# Document generation
 python-docx==1.1.2
+
+# Utils
+pydantic==2.9.0
+pydantic-settings==2.4.0
+
+# Testing
 pytest==8.3.0
+httpx==0.27.0

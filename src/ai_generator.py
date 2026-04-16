@@ -119,14 +119,16 @@ def get_prompt(document_type: str, request_text: str, company_name: str, inn: st
     return prompts.get(document_type, prompts["other"])
 
 
-def generate_answer(request_text: str, company_name: str, inn: str, document_type: str = "other") -> Optional[str]:
+def generate_answer(request_text: str, company_name: str, inn: str, document_type: str = "other") -> str:
     """Генерирует ответ через YandexGPT"""
     
     api_key = os.getenv("YANDEX_API_KEY")
     folder_id = os.getenv("YANDEX_FOLDER_ID")
     
-    if not api_key or not folder_id:
-        return "[Ошибка: не настроен YandexGPT. Добавьте YANDEX_API_KEY и YANDEX_FOLDER_ID в .env]"
+    if not api_key or not folder_id or api_key == "test_key":
+        # Заглушка для тестирования без API
+        prompt = get_prompt(document_type, request_text, company_name, inn)
+        return f"[ТЕСТОВЫЙ РЕЖИМ] YandexGPT не настроен. Пожалуйста, добавьте YANDEX_API_KEY и YANDEX_FOLDER_ID в .env\n\nСгенерированный промпт:\n{prompt[:500]}..."
     
     prompt = get_prompt(document_type, request_text, company_name, inn)
     
