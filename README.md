@@ -1,7 +1,7 @@
-# LegalHelp — AI-ассистент для ответов на входящие документы
+**Репозиторий:** [GitHub](https://github.com/SholbanDongak/LegalHelp) — AI-ассистент для ответов на входящие документы
 
 **Автор:** Шолбан Донгак  
-**Репозиторий:** [GitHub](https://github.com/SholbanDongak/practice_2_team_11)
+**Репозиторий:** [GitHub](https://github.com/SholbanDongak/LegalHelp)
 
 ## О проекте
 LegalHelp генерирует юридически корректные черновики ответов на:
