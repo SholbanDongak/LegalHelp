@@ -1,54 +1,41 @@
-**Репозиторий:** [GitHub](https://github.com/SholbanDongak/LegalHelp) — AI-ассистент для ответов на входящие документы
+# LegalHelp — AI-ассистент для ответов на входящие документы
 
 **Автор:** Шолбан Донгак  
 **Репозиторий:** [GitHub](https://github.com/SholbanDongak/LegalHelp)
 
 ## О проекте
-LegalHelp генерирует юридически корректные черновики ответов на:
-- Запросы контролирующих органов (ФНС, прокуратура, трудовая инспекция, Роскомнадзор, ФАС)
-- Судебные акты (определения, иски, запросы)
-- Письма контрагентов (претензии, оферты, рекламации)
-- Обращения граждан и жалобы
 
-## Целевая аудитория
-| Сегмент | Сценарий использования |
-|---------|------------------------|
-| Малый бизнес | Ответы на запросы госорганов |
-| Юридические фирмы | Черновики процессуальных документов |
-| Отдел закупок | Ответы на жалобы и запросы ФАС |
-| Руководители | Переписка с контрагентами |
+LegalHelp генерирует юридически корректные черновики ответов на запросы госорганов, судебные акты, письма контрагентов.
 
-## Технологический стек (РФ-совместимый)
+Проект полностью локальный: React + FastAPI + Ollama + Qwen2.5 + ChromaDB.
+
+## Технологический стек
+
 | Компонент | Технология |
 |-----------|------------|
-| Backend | Python 3.11 + FastAPI |
-| База данных | PostgreSQL |
+| Бэкенд | Python 3.11 + FastAPI |
+| База знаний (векторная) | ChromaDB |
 | OCR | EasyOCR + Tesseract |
-| LLM | YandexGPT |
-| Контейнеризация | Docker |
-| CI/CD | GitHub Actions |
+| Локальная LLM | Ollama + Qwen2.5:7b-instruct |
+| Фронтенд | React + Vite |
 
-## API Эндпоинты
-| Метод | Эндпоинт | Описание |
-|-------|----------|----------|
-| POST | `/api/process` | Анализ документа → генерация ответа |
-| GET | `/api/health` | Проверка работоспособности |
+## Установка и запуск
 
-## Запуск
-```bash
-# 1. Клонировать
-git clone https://github.com/SholbanDongak/LegalHelp.git
-cd LegalHelp
-# 2. Виртуальное окружение
-python -m venv venv
-source venv/bin/activate
+1. Установите Ollama, скачайте модель: `ollama pull qwen2.5:7b-instruct`
+2. Запустите сервер Ollama: `ollama serve`
+3. В другом терминале: `cd ~/LegalHelp`, `source legal_env/bin/activate`, `pip install -r requirements.txt`, `uvicorn src.main:app --reload --port 8000`
+4. В третьем терминале: `cd ~/legal-frontend`, `npm install`, `npm run dev`
+5. Откройте `http://localhost:5173`
 
-# 3. Установить зависимости
-pip install -r requirements.txt
+## API
 
-# 4. Запустить PostgreSQL через Docker
-docker-compose up -d
+- `POST /api/process` – параметры `company_name`, `inn`, `document_type`, `manual_text`
+- `GET /api/health`
 
-# 5. Запустить приложение
-uvicorn src.main:app --reload --port 8000
- 
+## Лицензия
+
+MIT
+
+## Автор
+
+Шолбан Донгак – магистерская диссертация.
