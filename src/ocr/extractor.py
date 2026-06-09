@@ -17,11 +17,12 @@ def extract_text_from_file(file_path: str) -> str:
             images = convert_from_path(file_path, dpi=300)
             full_text = []
             for img in images:
+                # EasyOCR работает с PIL Image напрямую
                 result = reader.readtext(img, detail=0, paragraph=True)
                 full_text.append("\n".join(result))
             return "\n".join(full_text)
         else:
-            # Обрабатываем изображение напрямую
+            # Для изображений передаём путь к файлу
             result = reader.readtext(file_path, detail=0, paragraph=True)
             return "\n".join(result)
     except Exception as e:
