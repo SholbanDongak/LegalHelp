@@ -1,0 +1,14 @@
+В [appeal_court]
+Заявитель: [applicant_name], адрес: [applicant_address]
+По делу № [case_number]
+
+Частная жалоба на определение [court_name] от [decision_date]
+
+Определением суда от [decision_date] [суть определения]. Считаю определение незаконным и подлежащим отмене, поскольку [grounds].
+
+На основании ст. 331–335 ГПК РФ,
+
+ПРОШУ:
+Определение [court_name] от [decision_date] отменить.
+
+[date]                           _________________ ([applicant_name])

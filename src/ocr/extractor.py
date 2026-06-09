@@ -1,43 +1,28 @@
-"""Модуль для распознавания текста из файлов (OCR)"""
-
 import os
-import pdfplumber
-from PIL import Image
-import pytesseract
+import easyocr
+from pdf2image import convert_from_path
 
-
-def extract_text_from_pdf(file_path: str) -> str:
-    """Извлекает текст из PDF-файла"""
-    text = ""
-    try:
-        with pdfplumber.open(file_path) as pdf:
-            for page in pdf.pages:
-                page_text = page.extract_text()
-                if page_text:
-                    text += page_text + "\n"
-    except Exception as e:
-        print(f"Ошибка при чтении PDF: {e}")
-    return text.strip()
-
-
-def extract_text_from_image(file_path: str) -> str:
-    """Извлекает текст из изображения через Tesseract OCR"""
-    try:
-        image = Image.open(file_path)
-        text = pytesseract.image_to_string(image, lang="rus")
-        return text.strip()
-    except Exception as e:
-        print(f"Ошибка при распознавании изображения: {e}")
-        return ""
-
+# Инициализация EasyOCR один раз при импорте модуля
+reader = easyocr.Reader(['ru', 'en'], gpu=False)
 
 def extract_text_from_file(file_path: str) -> str:
-    """Определяет тип файла и извлекает текст"""
+    """
+    Извлекает текст из файла (изображение или PDF) с помощью EasyOCR.
+    Поддерживаются форматы: .png, .jpg, .jpeg, .pdf.
+    """
     ext = os.path.splitext(file_path)[1].lower()
-
-    if ext == '.pdf':
-        return extract_text_from_pdf(file_path)
-    elif ext in ['.png', '.jpg', '.jpeg', '.tiff', '.bmp']:
-        return extract_text_from_image(file_path)
-    else:
-        return f"Неподдерживаемый формат файла: {ext}"
+    try:
+        if ext == '.pdf':
+            # Конвертируем PDF в список изображений
+            images = convert_from_path(file_path, dpi=300)
+            full_text = []
+            for img in images:
+                result = reader.readtext(img, detail=0, paragraph=True)
+                full_text.append("\n".join(result))
+            return "\n".join(full_text)
+        else:
+            # Обрабатываем изображение напрямую
+            result = reader.readtext(file_path, detail=0, paragraph=True)
+            return "\n".join(result)
+    except Exception as e:
+        return f"Ошибка OCR: {str(e)}"

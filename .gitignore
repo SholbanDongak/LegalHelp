@@ -1,20 +1,27 @@
+# Виртуальные окружения
+legal_env/
+ml_env/
 venv/
-__pycache__/
-.env
+
+# Базы данных ChromaDB
+legal_chromadb/
+
+# Распакованные законы
+RusLawOD_XML/
+
+# Временные и служебные файлы
+*.zip
+*.backup
 *.pyc
+__pycache__/
 .DS_Store
-.pytest_cache/
-*.save
+package-lock.json
 
-# ML models (слишком большие для Git)
-*.pth
-*.pt
-*.bin
-*.h5
-models/
-checkpoints/
+# Скрипты (по желанию – можно оставить, но лучше добавить, так как они часть проекта)
+# download_ruslawod.py
+# parse_document_templates.py
+# update_from_api.py
+# load_templates_fixed.py
 
-# macOS specific
-.DS_Store
-.AppleDouble
-.LSOverride
+# Папки сторонних библиотек
+pravo.gov-api/
