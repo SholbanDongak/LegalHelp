@@ -1,30 +1,36 @@
 import os
 import xml.etree.ElementTree as ET
-from langchain_text_splitters import RecursiveCharacterTextSplitter
-from sentence_transformers import SentenceTransformer
 import chromadb
 from chromadb.utils import embedding_functions
+from langchain_text_splitters import RecursiveCharacterTextSplitter
 
-# Путь к папке с XML-файлами законов (уже есть после распаковки RusLawOD)
 XML_DIR = "./RusLawOD_XML"
-CHUNK_SIZE = 1000          # размер фрагмента текста для эмбеддинга
-CHUNK_OVERLAP = 200        # перекрытие между фрагментами
-MODEL_NAME = "all-MiniLM-L6-v2"   # модель для эмбеддингов
-
-print("Загрузка модели эмбеддингов...")
-embedder = SentenceTransformer(MODEL_NAME)
+CHROMA_PATH = "./legal_chromadb"
+COLLECTION_NAME = "ruslawod"
+CHUNK_SIZE = 1000
+CHUNK_OVERLAP = 200
+MODEL_NAME = "all-MiniLM-L6-v2"
 
 print("Подключение к ChromaDB...")
-client = chromadb.PersistentClient(path="./legal_chromadb")
-collection_name = "ruslawod"
+client = chromadb.PersistentClient(path=CHROMA_PATH)
+embedding_fn = embedding_functions.SentenceTransformerEmbeddingFunction(model_name=MODEL_NAME)
+
+# НЕ УДАЛЯЕМ коллекцию, а получаем существующую или создаём новую
 try:
-    client.delete_collection(collection_name)   # удаляем старую, если есть
+    collection = client.get_collection(COLLECTION_NAME)
+    print(f"Коллекция '{COLLECTION_NAME}' уже существует, добавляем новые документы...")
+except:
+    collection = client.create_collection(name=COLLECTION_NAME, embedding_function=embedding_fn)
+    print(f"Коллекция '{COLLECTION_NAME}' создана...")
+
+# Загружаем уже существующие ID документов (чтобы не дублировать)
+existing_ids = set()
+try:
+    existing = collection.get()
+    existing_ids = set(existing['ids'])
+    print(f"Найдено уже загруженных документов: {len(existing_ids)}")
 except:
     pass
-collection = client.create_collection(
-    name=collection_name,
-    embedding_function=embedding_functions.SentenceTransformerEmbeddingFunction(model_name=MODEL_NAME)
-)
 
 text_splitter = RecursiveCharacterTextSplitter(
     chunk_size=CHUNK_SIZE,
@@ -35,13 +41,16 @@ text_splitter = RecursiveCharacterTextSplitter(
 
 total_chunks = 0
 files_processed = 0
-
-# Перебираем все XML-файлы в папке
 for filename in os.listdir(XML_DIR):
     if not filename.endswith(".xml"):
         continue
     filepath = os.path.join(XML_DIR, filename)
     try:
+        # Пропускаем уже загруженные файлы (по ID)
+        doc_id = filename.replace(".xml", "")
+        if doc_id in existing_ids:
+            continue
+            
         tree = ET.parse(filepath)
         root = tree.getroot()
         text_elem = root.find(".//text")
@@ -62,15 +71,9 @@ for filename in os.listdir(XML_DIR):
             )
             total_chunks += 1
         files_processed += 1
-
-        # Для быстрой проверки на защите обработаем только первые 200 файлов
-        # (можно убрать или увеличить число, когда будет время на полную базу)
-##        if files_processed >= 200:
-##            break
-
         if files_processed % 100 == 0:
-            print(f"Обработано {files_processed} файлов, создано {total_chunks} чанков")
+            print(f"Добавлено {files_processed} новых файлов, создано {total_chunks} чанков")
     except Exception as e:
         print(f"Ошибка в {filename}: {e}")
 
-print(f"Готово! Файлов: {files_processed}, чанков: {total_chunks}")
+print(f"Готово! Добавлено {files_processed} новых файлов, всего чанков: {total_chunks}")
