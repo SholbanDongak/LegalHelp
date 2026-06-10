@@ -25,3 +25,18 @@ package-lock.json
 
 # Папки сторонних библиотек
 pravo.gov-api/
+# Временные и большие папки
+RusLawOD_XML/
+legal_chromadb/
+ml_env/
+pravo.gov-api/
+__pycache__/
+*.pyc
+*.backup
+*.zip
+download_ruslawod.py
+parse_document_templates.py
+update_from_api.py
+load_templates_fixed.py
+package-lock.json
+docker-compose.yml.backup
