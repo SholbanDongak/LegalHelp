@@ -39,4 +39,4 @@ parse_document_templates.py
 update_from_api.py
 load_templates_fixed.py
 package-lock.json
-docker-compose.yml.backup
+docker-compose.yml.backup*.log
