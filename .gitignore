@@ -40,3 +40,5 @@ update_from_api.py
 load_templates_fixed.py
 package-lock.json
 docker-compose.yml.backup*.log
+legal-frontend_old/
+*.log # на случай, если не было

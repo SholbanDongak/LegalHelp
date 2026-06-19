@@ -1,160 +1,246 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
 """
-Модуль автоматического обновления базы знаний из API pravo.gov.ru
-Запуск: python update_legislation.py
+Скрипт для автоматического обновления базы законов из API pravo.gov.ru
+Адаптирован под новый эндпоинт /api/Documents (июнь 2026)
+Фильтрует только федеральные законы (eoNumber начинается с '000120')
 """
 
 import os
 import sys
-import json
 import requests
+import json
+import time
+import hashlib
 from datetime import datetime, timedelta
-from typing import List, Dict, Optional
+import xml.etree.ElementTree as ET
+from sentence_transformers import SentenceTransformer
+import chromadb
+from chromadb.utils import embedding_functions
+import logging
+from tqdm import tqdm
 
-# Подключаемся к ChromaDB и используем те же настройки, что в load_to_chromadb.py
+# Настройка логирования
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('update.log'),
+        logging.StreamHandler(sys.stdout)
+    ]
+)
+logger = logging.getLogger(__name__)
+
+# Конфигурация
+CHROMA_PATH = "./legal_chromadb"
+XML_FOLDER = "./RusLawOD_XML"
+MODEL_NAME = "all-MiniLM-L6-v2"
+COLLECTION_NAME = "ruslawod"
+API_BASE = "http://publication.pravo.gov.ru/api/Documents"
+PAGE_SIZE = 100  # количество документов на страницу
+
+# Инициализация модели эмбеддингов
+logger.info("Загрузка модели эмбеддингов...")
+model = SentenceTransformer(MODEL_NAME)
+
+# Подключение к ChromaDB
+logger.info("Подключение к ChromaDB...")
+client = chromadb.PersistentClient(path=CHROMA_PATH)
 try:
-    import chromadb
-    from chromadb.utils import embedding_functions
-    from langchain_text_splitters import RecursiveCharacterTextSplitter
-except ImportError as e:
-    print(f"❌ Ошибка импорта: {e}")
-    print("Убедитесь, что установлены chromadb, langchain-text-splitters")
+    collection = client.get_collection(COLLECTION_NAME)
+except:
+    logger.error("Коллекция 'ruslawod' не найдена. Сначала запустите load_to_chromadb.py")
     sys.exit(1)
 
-# --- Конфигурация ---
-API_BASE = "http://publication.pravo.gov.ru/api"
-DAYS_BACK = 1  # Ищем документы за последние сутки
-CHROMA_PATH = "./legal_chromadb"
-COLLECTION_NAME = "ruslawod"
-CHUNK_SIZE = 1000
-CHUNK_OVERLAP = 200
-MODEL_NAME = "all-MiniLM-L6-v2"
-
-# --- Функции для работы с API ---
-def fetch_publications_by_date(date_str: str) -> Optional[List[Dict]]:
-    """Получает список публикаций за указанную дату (формат ГГГГ-ММ-ДД)."""
-    url = f"{API_BASE}/publications?date={date_str}"
-    print(f"🔍 Запрашиваю документы за {date_str}: {url}")
-    try:
-        response = requests.get(url, timeout=30)
-        response.raise_for_status()
-        data = response.json()
-        # API может возвращать список напрямую или объект с ключом 'items'
-        if isinstance(data, list):
-            return data
-        elif isinstance(data, dict) and 'items' in data:
-            return data['items']
-        else:
-            print(f"⚠️ Неизвестный формат ответа: {type(data)}")
-            return None
-    except requests.exceptions.RequestException as e:
-        print(f"❌ Ошибка при запросе к API: {e}")
-        return None
-
-def fetch_document_text(doc_id: str) -> Optional[str]:
-    """Загружает полный текст документа по его ID (nd)."""
-    # Эндпоинт может отличаться, проверяем два варианта
-    url1 = f"{API_BASE}/publication/{doc_id}"
-    url2 = f"{API_BASE}/documents/{doc_id}"
-    for url in (url1, url2):
+def get_documents_for_date(date_str):
+    """Получить список документов за указанную дату через API"""
+    all_items = []
+    page = 1
+    total_pages = 1
+    
+    while page <= total_pages:
+        url = f"{API_BASE}?PeriodType=day&Date={date_str}&PageSize={PAGE_SIZE}&Index={page}"
+        logger.info(f"Запрос страницы {page}: {url}")
+        
         try:
-            resp = requests.get(url, timeout=30)
-            if resp.status_code == 200:
-                data = resp.json()
-                # Пытаемся извлечь текст из разных возможных полей
-                text = data.get('fullText') or data.get('text') or data.get('content')
-                if text:
-                    return text
-        except:
+            response = requests.get(url, timeout=30)
+            if response.status_code != 200:
+                logger.error(f"Ошибка API: {response.status_code} - {response.text[:200]}")
+                break
+            
+            data = response.json()
+            items = data.get('items', [])
+            if not items:
+                break
+                
+            all_items.extend(items)
+            
+            # Обновляем информацию о страницах
+            total_pages = data.get('pagesTotalCount', 1)
+            logger.info(f"Получено {len(items)} документов, всего страниц: {total_pages}")
+            
+            if page >= total_pages:
+                break
+                
+            page += 1
+            time.sleep(0.5)  # небольшая пауза между запросами
+            
+        except Exception as e:
+            logger.error(f"Ошибка при запросе: {e}")
+            break
+    
+    return all_items
+
+def download_document_xml(doc_id, doc_number, save_path):
+    """Скачать XML-файл документа по ID"""
+    # Пробуем разные варианты эндпоинтов для скачивания
+    endpoints = [
+        f"{API_BASE}/{doc_id}/xml",
+        f"{API_BASE}/{doc_id}/file?format=xml",
+        f"{API_BASE}/{doc_id}?format=xml"
+    ]
+    
+    for url in endpoints:
+        try:
+            response = requests.get(url, timeout=60)
+            if response.status_code == 200 and response.content:
+                # Проверяем, что это действительно XML (начинается с '<')
+                content_preview = response.content[:100].decode('utf-8', errors='ignore')
+                if content_preview.strip().startswith('<'):
+                    with open(save_path, 'wb') as f:
+                        f.write(response.content)
+                    logger.info(f"Скачан: {doc_number} -> {os.path.basename(save_path)}")
+                    return True
+        except Exception as e:
+            logger.warning(f"Ошибка скачивания через {url}: {e}")
             continue
-    print(f"⚠️ Не удалось загрузить текст документа {doc_id}")
-    return None
+    
+    logger.warning(f"Не удалось скачать {doc_number} (ID: {doc_id})")
+    return False
 
-# --- Функции для работы с ChromaDB ---
-def get_chroma_collection():
-    """Подключается к ChromaDB и возвращает коллекцию."""
-    client = chromadb.PersistentClient(path=CHROMA_PATH)
-    embedding_fn = embedding_functions.SentenceTransformerEmbeddingFunction(model_name=MODEL_NAME)
-    try:
-        collection = client.get_collection(COLLECTION_NAME)
-        print(f"✅ Подключено к коллекции '{COLLECTION_NAME}'")
-    except:
-        print(f"❌ Коллекция '{COLLECTION_NAME}' не найдена. Сначала запустите load_to_chromadb.py")
-        sys.exit(1)
-    return collection
-
-def document_exists(collection, doc_id: str) -> bool:
-    """Проверяет, есть ли уже документ в базе (по ID)."""
-    try:
-        result = collection.get(where={"source": doc_id}, limit=1)
-        return len(result['ids']) > 0
-    except:
+def process_document(doc):
+    """Обработка одного документа: скачивание и добавление в ChromaDB"""
+    doc_id = doc.get('id')
+    eo_number = doc.get('eoNumber')
+    title = doc.get('title', '')
+    
+    if not doc_id or not eo_number:
         return False
 
-def add_document_to_chromadb(collection, doc_id: str, text: str):
-    """Разбивает текст на чанки и добавляет в ChromaDB."""
-    splitter = RecursiveCharacterTextSplitter(
-        chunk_size=CHUNK_SIZE,
-        chunk_overlap=CHUNK_OVERLAP,
-        separators=["\n\n", "\n", " ", ""],
-        length_function=len
-    )
-    chunks = splitter.split_text(text)
-    if not chunks:
-        print(f"⚠️ Текст документа {doc_id} пустой или слишком короткий")
-        return 0
-    for idx, chunk in enumerate(chunks):
-        chunk_id = f"{doc_id}_chunk_{idx}"
-        collection.add(
-            ids=[chunk_id],
-            documents=[chunk],
-            metadatas=[{"source": doc_id, "filename": f"{doc_id}.xml"}]
-        )
-    print(f"📄 Добавлен документ {doc_id} ({len(chunks)} чанков)")
-    return len(chunks)
+    # --- ФИЛЬТР: только федеральные законы (префикс 000120) ---
+    if not eo_number.startswith('000120'):
+        logger.debug(f"Пропускаем {eo_number} (не федеральный закон)")
+        return False
+    # ---------------------------------------------------------
+    
+    # Проверяем, не скачан ли уже этот документ
+    filename = f"{eo_number}.xml"
+    filepath = os.path.join(XML_FOLDER, filename)
+    
+    if os.path.exists(filepath):
+        logger.debug(f"Документ {eo_number} уже существует, пропускаем")
+        return False
+    
+    # Скачиваем XML
+    os.makedirs(XML_FOLDER, exist_ok=True)
+    if not download_document_xml(doc_id, eo_number, filepath):
+        return False
+    
+    # Теперь добавим в ChromaDB
+    try:
+        add_to_chromadb(filepath)
+        logger.info(f"Добавлен в базу: {eo_number}")
+        return True
+    except Exception as e:
+        logger.error(f"Ошибка добавления {eo_number}: {e}")
+        os.remove(filepath)  # удаляем битый файл
+        return False
 
-# --- Основная функция обновления ---
-def update_knowledge_base():
-    print("--- Запуск ежедневного обновления базы знаний ---")
-    print(f"Дата запуска: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+def add_to_chromadb(filepath):
+    """Разбить XML на чанки и добавить в ChromaDB"""
+    # читаем XML
+    try:
+        tree = ET.parse(filepath)
+        root = tree.getroot()
+        # Извлекаем весь текст из XML
+        text_parts = []
+        for elem in root.iter():
+            if elem.text and elem.text.strip():
+                text_parts.append(elem.text.strip())
+            if elem.tail and elem.tail.strip():
+                text_parts.append(elem.tail.strip())
+        full_text = ' '.join(text_parts)
+        if not full_text.strip():
+            raise ValueError("Пустой текст")
+    except Exception as e:
+        logger.error(f"Ошибка парсинга XML {filepath}: {e}")
+        raise
+
+    # Разбиваем на чанки (простой способ — по абзацам или по длине)
+    # Здесь можно использовать ваш метод из load_to_chromadb.py
+    # Для примера — разбиваем по предложениям (упрощённо)
+    chunks = []
+    sentences = full_text.split('. ')
+    current_chunk = ""
+    for sent in sentences:
+        if len(current_chunk) + len(sent) < 500:
+            current_chunk += sent + ". "
+        else:
+            if current_chunk:
+                chunks.append(current_chunk.strip())
+            current_chunk = sent + ". "
+    if current_chunk:
+        chunks.append(current_chunk.strip())
+
+    if not chunks:
+        chunks = [full_text[:1000]]  # если не удалось разбить, берём первые 1000 символов
+
+    # Вычисляем эмбеддинги
+    embeddings = model.encode(chunks, convert_to_numpy=True)
+
+    # Генерируем ID для чанков
+    file_id = os.path.basename(filepath).replace('.xml', '')
+    ids = [f"{file_id}_{i}" for i in range(len(chunks))]
+
+    # Добавляем в коллекцию
+    collection.add(
+        embeddings=embeddings.tolist(),
+        documents=chunks,
+        ids=ids,
+        metadatas=[{"source": os.path.basename(filepath)} for _ in chunks]
+    )
+    logger.info(f"Добавлено {len(chunks)} чанков из {os.path.basename(filepath)}")
+
+def main():
+    # Определяем дату: либо переданный параметр, либо вчерашний день
+    if len(sys.argv) > 1:
+        try:
+            date_str = sys.argv[1]
+            datetime.strptime(date_str, "%Y-%m-%d")
+        except:
+            logger.error("Неверный формат даты. Используйте YYYY-MM-DD")
+            sys.exit(1)
+    else:
+        date_str = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
     
-    # 1. Подключаемся к ChromaDB
-    collection = get_chroma_collection()
-    
-    # 2. Определяем дату поиска (за последние DAYS_BACK дней)
-    target_date = (datetime.now() - timedelta(days=DAYS_BACK)).strftime("%Y-%m-%d")
-    
-    # 3. Получаем список публикаций
-    publications = fetch_publications_by_date(target_date)
-    if not publications:
-        print("⚠️ Нет публикаций или ошибка получения. Завершаю.")
+    logger.info(f"Обновление законодательства за дату: {date_str}")
+
+    # Получаем список документов
+    docs = get_documents_for_date(date_str)
+    logger.info(f"Найдено документов: {len(docs)}")
+
+    if not docs:
+        logger.info("Нет новых документов")
         return
-    
-    print(f"📑 Получено {len(publications)} публикаций за {target_date}")
-    
-    new_count = 0
-    for pub in publications:
-        # У разных документов ID может называться по-разному
-        doc_id = pub.get('nd') or pub.get('id') or pub.get('number')
-        if not doc_id:
-            continue
-        
-        # Пропускаем уже существующие
-        if document_exists(collection, doc_id):
-            print(f"⏩ Документ {doc_id} уже в базе, пропускаю")
-            continue
-        
-        # Загружаем полный текст
-        text = fetch_document_text(doc_id)
-        if not text:
-            continue
-        
-        # Добавляем в ChromaDB
-        chunks_added = add_document_to_chromadb(collection, doc_id, text)
-        if chunks_added:
-            new_count += 1
-    
-    print(f"--- Обновление завершено. Добавлено новых документов: {new_count} ---")
+
+    # Обрабатываем документы
+    added = 0
+    for doc in tqdm(docs, desc="Обработка документов"):
+        if process_document(doc):
+            added += 1
+
+    logger.info(f"Обновление завершено. Добавлено {added} новых документов.")
 
 if __name__ == "__main__":
-    update_knowledge_base()
+    main()
