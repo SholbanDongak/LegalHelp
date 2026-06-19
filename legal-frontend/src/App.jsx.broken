@@ -1,0 +1,176 @@
+import { useState, useRef } from 'react';
+import './App.css';
+
+function App() {
+  const [messages, setMessages] = useState([
+    { id: 1, text: 'Привет! Я AI-ассистент LegalHelp. Задайте ваш вопрос или отправьте документ.', sender: 'bot' }
+  ]);
+  const [inputText, setInputText] = useState('');
+  const [isLoading, setIsLoading] = useState(false);
+  const [selectedFile, setSelectedFile] = useState(null);
+  const [docType, setDocType] = useState('other');
+  const [judicialData, setJudicialData] = useState({
+    subtype: 'objection_to_court_order',
+    order_number: '', order_date: '', court_name: '', debtor_name: '', claimant_name: '', grounds: '',
+  });
+  const fileInputRef = useRef(null);
+  const cameraInputRef = useRef(null);
+
+  const handleJudicialChange = (field, value) => {
+    setJudicialData(prev => ({ ...prev, [field]: value }));
+  };
+
+  const cleanData = (obj) => {
+    const result = {};
+    for (const key in obj) {
+      if (obj[key] && typeof obj[key] === 'string' && obj[key].trim() !== '') {
+        result[key] = obj[key];
+      } else if (obj[key] && typeof obj[key] !== 'string') {
+        result[key] = obj[key];
+      }
+    }
+    return result;
+  };
+
+  const copyToClipboard = (text) => {
+    navigator.clipboard.writeText(text).then(() => alert('Ответ скопирован')).catch(() => alert('Ошибка копирования'));
+  };
+
+  const downloadAsTxt = (text, filename) => {
+    const blob = new Blob([text], { type: 'text/plain;charset=utf-8' });
+    const link = document.createElement('a');
+    link.href = URL.createObjectURL(blob);
+    link.download = `${filename}.txt`;
+    link.click();
+    URL.revokeObjectURL(link.href);
+  };
+
+  const sendMessage = async () => {
+    let userMessageText = '';
+    let requestBody = {};
+    if (docType === 'judicial_review') {
+      const queryData = { subtype: judicialData.subtype, ...cleanData(judicialData) };
+      userMessageText = `[${judicialData.subtype}] ` + JSON.stringify(queryData);
+      requestBody = {
+        company_name: 'ООО Ромашка',
+        inn: '1234567890',
+        document_type: 'judicial_review',
+        manual_text: JSON.stringify(queryData)
+      };
+    } else {
+      userMessageText = inputText.trim() || (selectedFile ? 'Отправлен файл' : '');
+      requestBody = {
+        company_name: 'ООО Ромашка',
+        inn: '1234567890',
+        document_type: docType,
+        manual_text: inputText.trim()
+      };
+    }
+    if (!userMessageText && !selectedFile) return;
+    const userMessage = { id: Date.now(), text: userMessageText, sender: 'user' };
+    setMessages(prev => [...prev, userMessage]);
+    setIsLoading(true);
+    try {
+      let response;
+      if (selectedFile && docType !== 'judicial_review') {
+        const formData = new FormData();
+        formData.append('file', selectedFile);
+        formData.append('company_name', 'ООО Ромашка');
+        formData.append('inn', '1234567890');
+        formData.append('document_type', docType);
+        response = await fetch('http://localhost:8000/api/process', { method: 'POST', body: formData });
+      } else {
+        response = await fetch('http://localhost:8000/api/process', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: new URLSearchParams(requestBody)
+        });
+      }
+      if (!response.ok) throw new Error(`HTTP ${response.status}`);
+      const data = await response.json();
+      const botMessage = { id: Date.now(), text: data.draft_answer, sender: 'bot' };
+      setMessages(prev => [...prev, botMessage]);
+    } catch (error) {
+      console.error(error);
+      const errorMessage = { id: Date.now(), text: 'Ошибка: ' + error.message, sender: 'bot' };
+      setMessages(prev => [...prev, errorMessage]);
+    } finally {
+      setIsLoading(false);
+      setSelectedFile(null);
+    }
+  };
+
+  const handleFileSelect = (event) => {
+    setSelectedFile(event.target.files[0]);
+  };
+
+  const triggerFileInput = () => fileInputRef.current.click();
+  const triggerCameraInput = () => cameraInputRef.current.click();
+
+  const renderJudicialFields = () => {
+    return (
+      <>
+        <input placeholder="Номер приказа" value={judicialData.order_number} onChange={e => handleJudicialChange('order_number', e.target.value)} />
+        <input placeholder="Дата вынесения" value={judicialData.order_date} onChange={e => handleJudicialChange('order_date', e.target.value)} />
+        <input placeholder="Мировой суд / участок" value={judicialData.court_name} onChange={e => handleJudicialChange('court_name', e.target.value)} />
+        <input placeholder="Должник" value={judicialData.debtor_name} onChange={e => handleJudicialChange('debtor_name', e.target.value)} />
+        <input placeholder="Взыскатель" value={judicialData.claimant_name} onChange={e => handleJudicialChange('claimant_name', e.target.value)} />
+        <textarea rows="3" placeholder="Основания (причина несогласия)" value={judicialData.grounds} onChange={e => handleJudicialChange('grounds', e.target.value)} />
+      </>
+    );
+  };
+
+  return (
+    <div className="chat-container">
+      <div className="chat-header">
+        <h2>⚖️ LegalHelp — Юридический AI-ассистент + составление документов</h2>
+      </div>
+      <div className="messages-container">
+        {messages.map((msg, idx) => (
+          <div key={msg.id} className={`message ${msg.sender}`}>
+            <div className="message-content">{msg.text}</div>
+            {msg.sender === 'bot' && (
+              <div className="message-actions">
+                <button onClick={() => copyToClipboard(msg.text)}>📋 Копировать</button>
+                <button onClick={() => downloadAsTxt(msg.text, `response_${idx}`)}>📥 Скачать .txt</button>
+              </div>
+            )}
+          </div>
+        ))}
+        {isLoading && <div className="message bot"><div className="message-content">Генерирую ответ...</div></div>}
+      </div>
+      <div className="input-area">
+        <button onClick={triggerFileInput} disabled={isLoading} className="attach-button" title="Выбрать файл">📁</button>
+        <input type="file" ref={fileInputRef} onChange={handleFileSelect} style={{ display: 'none' }} accept=".pdf,.png,.jpg,.jpeg" />
+        <button onClick={triggerCameraInput} disabled={isLoading} className="attach-button" title="Сделать фото">📸</button>
+        <input type="file" ref={cameraInputRef} onChange={handleFileSelect} style={{ display: 'none' }} accept="image/*" capture="environment" />
+        <select value={docType} onChange={(e) => setDocType(e.target.value)} disabled={isLoading}>
+          <option value="other">Общий вопрос</option>
+          <option value="judicial_review">Судебный документ (жалоба, возражение)</option>
+        </select>
+        <input
+          type="text"
+          value={inputText}
+          onChange={(e) => setInputText(e.target.value)}
+          placeholder="Введите вопрос или дополнительную информацию..."
+          disabled={isLoading}
+        />
+        <button onClick={sendMessage} disabled={isLoading}>Отправить</button>
+        {docType === 'judicial_review' && (
+          <div className="judicial-details">
+            <label>Тип документа:
+              <select value={judicialData.subtype} onChange={e => handleJudicialChange('subtype', e.target.value)}>
+                <option value="objection_to_court_order">Возражение на судебный приказ</option>
+              </select>
+            </label>
+            <div className="fields-grid">
+              {renderJudicialFields()}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+export default App;
