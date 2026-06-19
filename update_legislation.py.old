@@ -1,0 +1,208 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+
+"""
+Скрипт для автоматического обновления базы законов из API pravo.gov.ru
+Адаптирован под новый эндпоинт /api/Documents (июнь 2026)
+Скачивает PDF и извлекает текст через pdfplumber
+Фильтрует только федеральные законы (eoNumber начинается с '000120')
+ВЕРСИЯ ДЛЯ ТЕСТА: обрабатывает только первые 5 страниц.
+"""
+
+import os
+import sys
+import requests
+import time
+import logging
+from datetime import datetime, timedelta
+import pdfplumber
+from sentence_transformers import SentenceTransformer
+import chromadb
+
+# Настройка логирования
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.FileHandler('update.log'),
+        logging.StreamHandler(sys.stdout)
+    ]
+)
+logger = logging.getLogger(__name__)
+
+# Конфигурация
+CHROMA_PATH = "./legal_chromadb"
+PDF_FOLDER = "./RusLawOD_PDF"
+MODEL_NAME = "all-MiniLM-L6-v2"
+COLLECTION_NAME = "ruslawod"
+API_BASE = "http://publication.pravo.gov.ru/api/Documents"
+PAGE_SIZE = 100
+
+os.makedirs(PDF_FOLDER, exist_ok=True)
+
+logger.info("Загрузка модели эмбеддингов...")
+model = SentenceTransformer(MODEL_NAME)
+
+logger.info("Подключение к ChromaDB...")
+client = chromadb.PersistentClient(path=CHROMA_PATH)
+try:
+    collection = client.get_collection(COLLECTION_NAME)
+except:
+    logger.error("Коллекция 'ruslawod' не найдена. Сначала запустите load_to_chromadb.py")
+    sys.exit(1)
+
+def get_documents_for_date(date_str):
+    MAX_PAGES = 5  # ОГРАНИЧЕНИЕ ДЛЯ ТЕСТА – обработаем только 5 страниц
+    all_items = []
+    page = 1
+    total_pages = 1
+    while page <= total_pages:
+        if page > MAX_PAGES:
+            logger.info(f"Достигнут лимит страниц ({MAX_PAGES}), остановка")
+            break
+        url = f"{API_BASE}?PeriodType=day&Date={date_str}&PageSize={PAGE_SIZE}&Index={page}"
+        logger.info(f"Запрос страницы {page}")
+        try:
+            response = requests.get(url, timeout=30)
+            if response.status_code != 200:
+                logger.error(f"Ошибка API: {response.status_code}")
+                break
+            data = response.json()
+            items = data.get('items', [])
+            if not items:
+                break
+            all_items.extend(items)
+            total_pages = data.get('pagesTotalCount', 1)
+            logger.info(f"Получено {len(items)} документов, всего страниц: {total_pages}")
+            if page >= total_pages:
+                break
+            page += 1
+            time.sleep(0.5)
+        except Exception as e:
+            logger.error(f"Ошибка при запросе: {e}")
+            break
+    return all_items
+
+def download_pdf(eo_number, save_path):
+    url = f"http://publication.pravo.gov.ru/file/pdf?eoNumber={eo_number}"
+    try:
+        response = requests.get(url, timeout=60)
+        if response.status_code == 200 and response.content:
+            if response.content[:4] == b'%PDF':
+                with open(save_path, 'wb') as f:
+                    f.write(response.content)
+                logger.info(f"Скачан PDF: {eo_number}")
+                return True
+            else:
+                logger.warning(f"Скачанный файл не PDF: {eo_number}")
+                return False
+        else:
+            logger.warning(f"Ошибка скачивания {eo_number}: {response.status_code}")
+            return False
+    except Exception as e:
+        logger.warning(f"Ошибка при скачивании {eo_number}: {e}")
+        return False
+
+def extract_text_from_pdf(pdf_path):
+    text_parts = []
+    try:
+        with pdfplumber.open(pdf_path) as pdf:
+            for page in pdf.pages:
+                text = page.extract_text()
+                if text:
+                    text_parts.append(text)
+        return '\n'.join(text_parts)
+    except Exception as e:
+        logger.error(f"Ошибка извлечения текста из {pdf_path}: {e}")
+        return ""
+
+def add_text_to_chromadb(filepath, eo_number):
+    full_text = extract_text_from_pdf(filepath)
+    if not full_text.strip():
+        logger.warning(f"Пустой текст в {eo_number}, удаляем PDF")
+        os.remove(filepath)
+        return False
+
+    chunks = []
+    chunk_size = 500
+    overlap = 50
+    for i in range(0, len(full_text), chunk_size - overlap):
+        chunk = full_text[i:i + chunk_size]
+        if chunk.strip():
+            chunks.append(chunk.strip())
+    if not chunks:
+        chunks = [full_text[:1000]]
+
+    embeddings = model.encode(chunks, convert_to_numpy=True)
+    file_id = eo_number.replace('.', '_')
+    ids = [f"{file_id}_{i}" for i in range(len(chunks))]
+
+    collection.add(
+        embeddings=embeddings.tolist(),
+        documents=chunks,
+        ids=ids,
+        metadatas=[{"source": f"{eo_number}.pdf"} for _ in chunks]
+    )
+    logger.info(f"Добавлено {len(chunks)} чанков из {eo_number}")
+    return True
+
+def process_document(doc):
+    doc_id = doc.get('id')
+    eo_number = doc.get('eoNumber')
+    if not doc_id or not eo_number:
+        return False
+    if not eo_number.startswith('000120'):
+        return False
+
+    filename = f"{eo_number}.pdf"
+    filepath = os.path.join(PDF_FOLDER, filename)
+    if os.path.exists(filepath):
+        logger.debug(f"PDF {eo_number} уже существует, пропускаем")
+        return False
+
+    if not download_pdf(eo_number, filepath):
+        return False
+
+    try:
+        if add_text_to_chromadb(filepath, eo_number):
+            logger.info(f"Успешно добавлен: {eo_number}")
+            return True
+        else:
+            return False
+    except Exception as e:
+        logger.error(f"Ошибка обработки {eo_number}: {e}")
+        if os.path.exists(filepath):
+            os.remove(filepath)
+        return False
+
+def main():
+    if len(sys.argv) > 1:
+        try:
+            date_str = sys.argv[1]
+            datetime.strptime(date_str, "%Y-%m-%d")
+        except:
+            logger.error("Неверный формат даты. Используйте YYYY-MM-DD")
+            sys.exit(1)
+    else:
+        date_str = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+    
+    logger.info(f"Обновление законодательства за дату: {date_str}")
+
+    docs = get_documents_for_date(date_str)
+    logger.info(f"Найдено документов: {len(docs)}")
+
+    if not docs:
+        logger.info("Нет новых документов")
+        return
+
+    added = 0
+    for i, doc in enumerate(docs, 1):
+        if i % 100 == 0:
+            logger.info(f"Обработано {i}/{len(docs)} документов")
+        if process_document(doc):
+            added += 1
+
+    logger.info(f"Обновление завершено. Добавлено {added} новых документов.")
+
+if __name__ == "__main__":
+    main()

@@ -9,15 +9,23 @@ legal_chromadb/
 # Распакованные законы
 RusLawOD_XML/
 
-# Временные и служебные файлы
+# Репозиторий для обновлений
+RusLawOD_repo/
+
+# Логи
+logs/
+*.log
+
+# Временные файлы
 *.zip
 *.backup
 *.pyc
 __pycache__/
 .DS_Store
 package-lock.json
+docker-compose.yml.backup
 
-# Скрипты (по желанию – можно оставить, но лучше добавить, так как они часть проекта)
+# Старые скрипты (не игнорируем .old)
 # download_ruslawod.py
 # parse_document_templates.py
 # update_from_api.py
@@ -25,20 +33,9 @@ package-lock.json
 
 # Папки сторонних библиотек
 pravo.gov-api/
-# Временные и большие папки
-RusLawOD_XML/
-legal_chromadb/
-ml_env/
-pravo.gov-api/
-__pycache__/
-*.pyc
-*.backup
-*.zip
-download_ruslawod.py
-parse_document_templates.py
-update_from_api.py
-load_templates_fixed.py
-package-lock.json
-docker-compose.yml.backup*.log
+
+# Временная папка фронтенда
 legal-frontend_old/
-*.log # на случай, если не было
+
+# Тестовые файлы
+test.pdf
