@@ -8,14 +8,29 @@ psycopg2-binary==2.9.9
 sqlalchemy==2.0.35
 alembic==1.13.0
 
+# Vector Database (RAG)
+chromadb>=0.5.0
+
+# AI / ML (Embeddings + Reranking)
+sentence-transformers>=3.0.0
+torch>=2.0.0
+transformers>=4.40.0
+numpy>=1.26.0
+
+# Hybrid Search (BM25 + Lemmatization)
+rank-bm25>=0.2.2
+pymorphy3>=2.0.0
+pymorphy3-dicts-ru>=2.4.0
+
 # OCR
 easyocr==1.7.1
 pdfplumber==0.11.0
 pillow==10.4.0
 
-# AI / LLM (YandexGPT) - без указания конкретной версии requests
+# AI / LLM (YandexGPT + Ollama)
 yandexcloud>=0.300.0
 requests>=2.32.3
+ollama>=0.3.0
 
 # Document generation
 python-docx==1.1.2
@@ -27,4 +42,3 @@ pydantic-settings==2.4.0
 # Testing
 pytest==8.3.0
 httpx==0.27.0
-ollama
