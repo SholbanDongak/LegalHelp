@@ -5,7 +5,7 @@ from typing import List, Dict, Tuple
 class UnifiedRetriever:
     """
     Универсальный retriever для работы со всеми кодексами.
-    Ищет по коллекциям: Конституция, ГК РФ, все остальные кодексы.
+    Увеличен top_k для лучшего покрытия.
     """
     
     def __init__(self):
@@ -28,16 +28,16 @@ class UnifiedRetriever:
         except:
             print("⚠️  Коллекция ГК РФ не найдена")
             
-        # Все остальные кодексы (ТК, УК, СК, КоАП, ГПК, УПК, НК, ЖК, ВК, ЛК, БК, КАС)
+        # Все остальные кодексы
         try:
             self.collections['all_codes'] = self.client.get_collection("all_codes_structured")
             print(f"✅ Все кодексы: {self.collections['all_codes'].count()} чанков")
         except:
             print("⚠️  Коллекция all_codes_structured не найдена")
     
-    def query(self, query_text: str, top_k: int = 5, code_filter: str = None) -> Tuple[str, List[Dict]]:
+    def query(self, query_text: str, top_k: int = 15, code_filter: str = None) -> Tuple[str, List[Dict]]:
         """
-        Поиск по всем кодексам или конкретному кодексу.
+        Поиск по всем кодексам. Увеличен top_k по умолчанию до 15.
         """
         query_embedding = self.model.encode(query_text).tolist()
         all_results = []
@@ -47,7 +47,8 @@ class UnifiedRetriever:
         else:
             collections_to_search = self.collections
         
-        k_per_collection = max(1, top_k // len(collections_to_search))
+        # Распределяем top_k между коллекциями
+        k_per_collection = max(3, top_k // len(collections_to_search))
         
         for code_name, collection in collections_to_search.items():
             if collection is None:
@@ -62,11 +63,14 @@ class UnifiedRetriever:
                 all_results.append({
                     'code': code_name,
                     'text': doc,
-                    'metadata': metadata
+                    'metadata': metadata,
+                    'score': 1.0  # Placeholder для reranking
                 })
         
+        # Сортируем по релевантности (упрощённо — по порядку выдачи)
         all_results = all_results[:top_k]
         
+        # Формируем контекст
         context = ""
         sources = []
         
@@ -112,7 +116,7 @@ if __name__ == "__main__":
         print(f"\n{'#'*60}")
         print(f"🔍 ЗАПРОС: {query}")
         print(f"{'#'*60}")
-        context, sources = retriever.query(query, top_k=3)
+        context, sources = retriever.query(query, top_k=15)
         print(f"\n📚 ИСТОЧНИКИ:")
         for s in sources:
             print(f"  - [{s['code_display']}] {s['metadata']}")
