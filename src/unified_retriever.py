@@ -6,6 +6,23 @@ import pymorphy3
 import re
 from typing import List, Dict, Tuple
 
+
+# Умный роутинг: для каждого типа документа — свои коллекции
+DOC_TYPE_COLLECTIONS = {
+    'claim_civil_general': ['gk_rf', 'all_codes', 'ruslawod'],  # Гражданские споры
+    'claim_consumer': ['zozpp_rf', 'gk_rf', 'ruslawod'],       # Защита прав потребителей
+    'claim_labor_wage': ['all_codes', 'ruslawod'],             # Трудовые споры
+    'claim_labor_reinstatement': ['all_codes', 'ruslawod'],    # Трудовые споры
+    'claim_divorce': ['all_codes', 'ruslawod'],                # Семейные споры
+    'claim_alimony': ['all_codes', 'ruslawod'],                # Семейные споры
+    'admin_claim_kas': ['all_codes', 'ruslawod'],              # Административные
+    'complaint_koap': ['all_codes', 'ruslawod'],               # КоАП
+    'appeal_civil': ['all_codes', 'ruslawod'],                 # Процессуальные
+    'cassation_civil': ['all_codes', 'ruslawod'],              # Процессуальные
+    'default': ['constitution', 'gk_rf', 'all_codes', 'zozpp_rf', 'ruslawod']  # Всё
+}
+
+
 class UnifiedRetriever:
     """
     Универсальный retriever с гибридным поиском, query expansion и reranking.
@@ -21,9 +38,17 @@ class UnifiedRetriever:
     def __init__(self, use_reranking: bool = True, use_hybrid: bool = True, use_query_expansion: bool = True):
         print("🔧 Инициализация retriever...")
         
-        # Bi-encoder для семантического поиска
+        # Bi-encoder для семантического поиска (кодексы, размерность 1024)
         self.bi_encoder = SentenceTransformer('intfloat/multilingual-e5-large')
-        print("✅ Bi-encoder (E5-Large) загружен")
+        print("✅ Bi-encoder (E5-Large, dim=1024) загружен")
+        
+        # Bi-encoder для большой базы RusLawOD (размерность 384)
+        try:
+            self.bi_encoder_small = SentenceTransformer('paraphrase-multilingual-MiniLM-L12-v2')
+            print("✅ Bi-encoder (MiniLM, dim=384) загружен для RusLawOD")
+        except Exception as e:
+            print(f"⚠️  Не удалось загрузить MiniLM: {e}")
+            self.bi_encoder_small = None
         
         # Cross-encoder для reranking
         self.use_reranking = use_reranking
@@ -51,7 +76,14 @@ class UnifiedRetriever:
             'грабёж': ['открытое хищение', 'статья 161'],
             'разбой': ['хищение с применением насилия', 'насильственное хищение', 'статья 162'],
             'мошенничество': ['обман', 'хищение обманом', 'статья 159'],
-            'неосновательное обогащение': ['необоснованное получение', 'безвозмездное получение', 'глава 60'],
+            'неосновательное обогащение': ['необоснованное получение', 'безвозмездное получение', 'глава 60', 'ошибочный перевод', 'случайный перевод', 'перевод не тому'],
+            'ошибочный перевод': ['неосновательное обогащение', 'случайный перевод', 'перевод по ошибке', 'статья 1102', 'возврат денег'],
+            'возврат денег': ['неосновательное обогащение', 'статья 1102', 'глава 60', 'ошибочный перевод'],
+            'долг': ['задолженность', 'обязательство', 'статья 309', 'статья 310', 'не возвращает'],
+            'занять': ['договор займа', 'статья 807', 'статья 808', 'долг', 'заём'],
+            'вернуть': ['возврат', 'статья 1102', 'неосновательное обогащение'],
+            'расписка': ['договор займа', 'статья 808', 'статья 807'],
+            'перевод': ['банковский перевод', 'безналичный расчёт', 'платёж'],
             'убийство': ['лишение жизни', 'умышленное причинение смерти', 'статья 105'],
             'изнасилование': ['насильственное половое сношение', 'статья 131'],
             'взятка': ['получение должностным лицом', 'коррупция', 'статья 290'],
@@ -65,9 +97,13 @@ class UnifiedRetriever:
             'красть': ['тайное хищение', 'хищение чужого имущества', 'статья 158'],
         }
         
-        # ChromaDB
+        # ChromaDB — МАЛЕНЬКАЯ база (кодексы, структурированные данные)
         self.client = chromadb.PersistentClient(path="./chroma_db_structured")
         self.collections = {}
+        
+        # ChromaDB — БОЛЬШАЯ база (RusLawOD, 5 млн чанков)
+        self.big_client = chromadb.PersistentClient(path="./legal_chromadb")
+        self.big_collections = {}
         
         try:
             self.collections['constitution'] = self.client.get_collection("legal_corpus_structured")
@@ -86,6 +122,20 @@ class UnifiedRetriever:
             print(f"✅ Все кодексы: {self.collections['all_codes'].count()} чанков")
         except:
             print("⚠️  Коллекция all_codes_structured не найдена")
+        
+        # Закон РФ О защите прав потребителей
+        try:
+            self.collections['zozpp_rf'] = self.client.get_collection("zozpp_structured")
+            print(f"✅ ЗоЗПП РФ: {self.collections['zozpp_rf'].count()} чанков")
+        except:
+            print("⚠️  Коллекция zozpp_structured не найдена")
+        
+        # Загружаем БОЛЬШУЮ базу (только семантический поиск, без BM25)
+        try:
+            self.big_collections['ruslawod'] = self.big_client.get_collection("ruslawod")
+            print(f"✅ RusLawOD (полная база): {self.big_collections['ruslawod'].count():,} чанков")
+        except Exception as e:
+            print(f"⚠️  Коллекция ruslawod не найдена: {e}")
         
         # Инициализация BM25 для гибридного поиска
         self.use_hybrid = use_hybrid
@@ -148,6 +198,12 @@ class UnifiedRetriever:
             expanded_query = query + " " + " ".join(expanded_terms)
             print(f"🔍 Query Expansion:")
             print(f"   Исходный: '{query}'")
+            print(f"   Расширенный: '{expanded_query}'")
+            print(f"   Найдено ключевых слов: {found_keywords}")
+        else:
+            expanded_query = query
+            print(f"⚠️  Query Expansion: не найдено ключевых слов для '{query}'")
+            print(f"   Леммы запроса: {query_lemmas[:10]}")
             print(f"   Леммы запроса: {query_lemmas}")
             print(f"   Найдено ключевых слов: {found_keywords}")
             print(f"   Расширенный: '{expanded_query}'")
@@ -155,6 +211,71 @@ class UnifiedRetriever:
         
         print(f"🔍 Query Expansion: ключевых слов не найдено в словаре")
         return query
+    
+    def _search_big_collection(self, query: str, top_k: int = 10) -> List[Dict]:
+        """Семантический поиск в большой базе RusLawOD (без BM25)."""
+        results = []
+        
+        # Используем модель с размерностью 384 для RusLawOD
+        if not self.bi_encoder_small:
+            print("⚠️  Модель MiniLM не загружена, пропускаем поиск в RusLawOD")
+            return results
+        
+        for coll_name, collection in self.big_collections.items():
+            try:
+                query_embedding = self.bi_encoder_small.encode(query).tolist()
+                res = collection.query(
+                    query_embeddings=[query_embedding],
+                    n_results=top_k * 2  # Берём больше для reranking
+                )
+                
+                if res and res.get('documents'):
+                    for doc, meta, doc_id in zip(
+                        res['documents'][0],
+                        res.get('metadatas', [[]])[0] if res.get('metadatas') else [{}] * len(res['documents'][0]),
+                        res['ids'][0]
+                    ):
+                        results.append({
+                            'code': 'ruslawod',  # Добавляем ключ 'code'
+                            'text': doc,
+                            'metadata': meta if isinstance(meta, dict) else {},
+                            'source': meta.get('source', coll_name) if isinstance(meta, dict) else coll_name,
+                            'id': doc_id,
+                            'score': 0.5  # Базовый score, будет улучшен reranking'ом
+                        })
+            except Exception as e:
+                print(f"⚠️  Ошибка в коллекции {coll_name}: {e}")
+        return results
+    
+    def _merge_results(self, primary: List[Dict], secondary: List[Dict], top_k: int) -> List[Dict]:
+        """Объединяет результаты из двух источников, убирая дубликаты."""
+        seen_texts = set()
+        merged = []
+        
+        # Сначала добавляем результаты из основной базы (они уже reranked)
+        for res in primary:
+            text_key = res.get('text', '')[:100]
+            if text_key not in seen_texts:
+                seen_texts.add(text_key)
+                merged.append(res)
+        
+        # Потом добавляем из большой базы, если их нет в основной
+        for res in secondary:
+            text_key = res.get('text', '')[:100]
+            if text_key not in seen_texts:
+                seen_texts.add(text_key)
+                merged.append(res)
+        
+        # Если есть reranking — переранжируем всё вместе
+        if self.use_reranking and len(merged) > top_k:
+            try:
+                merged = self._rerank(merged[0].get('query', ''), merged, top_k)
+            except:
+                merged = merged[:top_k]
+        else:
+            merged = merged[:top_k]
+        
+        return merged
     
     def _lemmatize_and_tokenize(self, text: str) -> List[str]:
         """Лемматизация и токенизация текста."""
@@ -225,7 +346,7 @@ class UnifiedRetriever:
         # Этап 0: Query Expansion (с лемматизацией!)
         expanded_query = self._expand_query(query_text)
         
-        candidates_to_retrieve = top_k * 6 if self.use_reranking else top_k
+        candidates_to_retrieve = top_k * 10 if self.use_reranking else top_k * 2
         
         query_embedding = self.bi_encoder.encode(expanded_query).tolist()
         all_candidates = []
@@ -285,6 +406,16 @@ class UnifiedRetriever:
             final_results = self._rerank(query_text, all_candidates, top_k=top_k)
         else:
             final_results = all_candidates[:top_k]
+        
+        # Этап 5: RusLawOD отключён по умолчанию (даёт шумные результаты)
+        # Раскомментируйте, если нужно искать по полной базе ФЗ
+        # if self.big_collections:
+        #     try:
+        #         big_results = self._search_big_collection(query_text, top_k=top_k)
+        #         final_results = self._merge_results(final_results, big_results, top_k)
+        #         print(f"🔍 Добавлено {len(big_results)} результатов из RusLawOD")
+        #     except Exception as e:
+        #         print(f"⚠️  Ошибка поиска в RusLawOD: {e}")
         
         # Формируем контекст и источники
         context = ""

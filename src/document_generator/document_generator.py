@@ -18,7 +18,8 @@ from src.document_generator.pdf_exporter import create_pdf
 async def generate_document(
     user_query: str,
     output_format: str = "both",
-    force_doc_type: Optional[str] = None
+    force_doc_type: Optional[str] = None,
+    user_fields: Optional[Dict] = None
 ) -> Dict:
     """
     Главный пайплайн генерации документа.
@@ -27,6 +28,7 @@ async def generate_document(
         user_query: Текст запроса пользователя
         output_format: Формат вывода ("docx", "pdf" или "both")
         force_doc_type: Принудительный тип документа (если None — определяется автоматически)
+        user_fields: Словарь с полями от пользователя (если None — извлекаются через LLM)
     
     Returns:
         Словарь с результатами:
@@ -74,10 +76,18 @@ async def generate_document(
             result["error"] = f"Шаблон для типа '{doc_type}' не найден"
             return result
         
-        # Шаг 3: Извлекаем поля из запроса
-        fields = await extract_fields(user_query, doc_type)
+        # Шаг 3: Извлекаем поля через LLM, затем дополняем/перезаписываем user_fields
+        llm_fields = await extract_fields(user_query, doc_type)
+        print(f"📝 LLM извлёк полей: {len([v for v in llm_fields.values() if v])}")
+        
+        if user_fields:
+            # Объединяем: user_fields имеют приоритет
+            fields = {**llm_fields, **user_fields}
+            print(f"📝 Объединено с user_fields: {len([v for v in fields.values() if v])}")
+        else:
+            fields = llm_fields
+        
         result["fields"] = fields
-        print(f"📝 Извлечено полей: {len([v for v in fields.values() if v])}")
         
         # Шаг 4: Заполняем шаблон
         filled_text = fill_template(template, fields)

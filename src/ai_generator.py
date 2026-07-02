@@ -4,6 +4,7 @@ import os
 import re
 from ollama import AsyncClient
 from src.unified_retriever import UnifiedRetriever
+from src.utils.ai_agent import analyze_request
 from src.verification.citation_verifier import CitationVerifier
 
 MODEL_NAME = "llama3.1:8b"
@@ -47,6 +48,15 @@ async def generate_answer_with_rag(query: str, company_name: str, inn: str, doc_
     """Генерирует ответ с использованием RAG по всем кодексам."""
     client = AsyncClient(host='http://127.0.0.1:11434')
     
+    # Анализируем запрос через AI-агент
+    print(f"\n🤖 Анализ запроса через AI-агент...")
+    try:
+        agent_analysis = analyze_request(query)
+        print(f"✅ AI-агент определил тип: {agent_analysis['classification']['label']}")
+    except Exception as e:
+        print(f"⚠️  Ошибка AI-агента: {e}")
+        agent_analysis = None
+    
     context = ""
     sources = []
     
@@ -60,10 +70,23 @@ async def generate_answer_with_rag(query: str, company_name: str, inn: str, doc_
             context = ""
             sources = []
     
+    # Формируем список уточняющих вопросов из AI-агента
+    clarifying_questions_text = ""
+    if agent_analysis and agent_analysis.get('questions'):
+        questions = agent_analysis['questions']
+        clarifying_questions_text = "\n\nУТОЧНЯЮЩИЕ ВОПРОСЫ (задай их пользователю):\n"
+        for i, q in enumerate(questions, 1):
+            clarifying_questions_text += f"{i}. {q}\n"
+        clarifying_questions_text += "\nВАЖНО: Сначала задай эти вопросы пользователю и дождись ответов. НЕ предлагай составить документ сразу!"
+    
     if context:
-        system_prompt = f"""Ты — юридический консультант, специалист по праву Российской Федерации.
+        system_prompt = f"""Ты — опытный юридический консультант, специалист по праву Российской Федерации. Ты ведёшь ДИАЛОГ с гражданином, как живой юрист на приёме.
 
-Отвечай строго на русском языке в официально-деловом стиле.
+ТВОЯ ЗАДАЧА:
+1. Внимательно выслушать ситуацию гражданина.
+2. Задать УТОЧНЯЮЩИЕ ВОПРОСЫ, чтобы выяснить все обстоятельства дела.
+3. НЕ ПРЕДЛАГАТЬ составить документ сразу — сначала выясни все детали!
+4. Только после получения полной информации — дай юридическую консультацию и предложи варианты действий.
 
 КРИТИЧЕСКИ ВАЖНЫЕ ПРАВИЛА:
 1. Используй ТОЛЬКО информацию из предоставленного контекста.
@@ -72,6 +95,9 @@ async def generate_answer_with_rag(query: str, company_name: str, inn: str, doc_
 4. Если в контексте нет ответа, прямо скажи: "В предоставленных правовых актах нет информации по данному вопросу."
 5. Не добавляй список источников в конце ответа.
 6. Если упоминаешь статью, убедись, что она реально есть в контексте.
+7. Отвечай на русском языке в официально-деловом стиле, но дружелюбно.
+8. Если это ПЕРВОЕ сообщение от пользователя — ОБЯЗАТЕЛЬНО задай уточняющие вопросы!
+9. НЕ предлагай составить иск/заявление/жалобу сразу — сначала выясни все обстоятельства.{clarifying_questions_text}
 
 КОНТЕКСТ ИЗ ПРАВОВЫХ АКТОВ:
 {context}"""

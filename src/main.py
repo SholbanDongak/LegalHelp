@@ -5,6 +5,7 @@ from fastapi.staticfiles import StaticFiles
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from src.ai_generator import generate_answer
+from src.utils.ai_agent import analyze_request
 from src.document_generator import generate_document, list_available_templates
 
 app = FastAPI(title="LegalHelp API", version="2.0")
@@ -56,6 +57,73 @@ async def process_request(
 # Монтируем папку output для скачивания документов
 app.mount("/output", StaticFiles(directory="output"), name="output")
 
+
+@app.post("/api/chat")
+async def chat_endpoint(request: dict):
+    """
+    Чат с AI-агентом.
+    
+    Request body:
+    {
+        "message": "текст сообщения пользователя",
+        "history": [{"role": "user", "content": "..."}, ...] (опционально)
+    }
+    
+    Returns:
+    {
+        "response": "текст ответа AI",
+        "agent_metadata": {
+            "doc_type": "тип документа",
+            "doc_label": "название типа",
+            "confidence": 0.0-1.0,
+            "entities": {...},
+            "duty": {...},
+            "questions": [...]
+        }
+    }
+    """
+    try:
+        message = request.get("message", "")
+        history = request.get("history", [])
+        
+        if not message:
+            return {"response": "Пожалуйста, задайте вопрос.", "agent_metadata": None}
+        
+        # 1. Анализируем запрос через AI-агент
+        print(f"\n🤖 AI-агент анализирует: '{message[:100]}...'")
+        agent_analysis = analyze_request(message)
+        
+        # 2. Генерируем ответ через RAG
+        print(f"🔍 Генерируем ответ через RAG...")
+        answer = generate_answer(message, "", "", "other")
+        
+        # 3. Формируем метаданные
+        metadata = {
+            'doc_type': agent_analysis['classification']['doc_type'],
+            'doc_label': agent_analysis['classification']['label'],
+            'confidence': agent_analysis['classification']['confidence'],
+            'entities': agent_analysis['entities'],
+            'duty': agent_analysis['duty'],
+            'questions': agent_analysis['questions']
+        }
+        
+        print(f"✅ AI-агент определил: {metadata['doc_label']} ({metadata['confidence']:.0%})")
+        
+        return {
+            "response": answer,
+            "agent_metadata": metadata
+        }
+        
+    except Exception as e:
+        print(f"❌ Ошибка в /api/chat: {e}")
+        import traceback
+        traceback.print_exc()
+        return {
+            "response": f"Извините, произошла ошибка: {str(e)}",
+            "agent_metadata": None
+        }
+
+
 @app.post("/api/generate-document")
 async def api_generate_document(request: dict):
     """
@@ -65,7 +133,8 @@ async def api_generate_document(request: dict):
     {
         "query": "текст запроса пользователя",
         "output_format": "docx|pdf|both" (по умолчанию "both"),
-        "force_doc_type": "тип документа" (опционально)
+        "force_doc_type": "тип документа" (опционально),
+        "user_fields": {"court_name": "...", "plaintiff_name": "..."} (опционально)
     }
     
     Returns:
@@ -84,6 +153,7 @@ async def api_generate_document(request: dict):
         query = request.get("query", "")
         output_format = request.get("output_format", "both")
         force_doc_type = request.get("force_doc_type")
+        user_fields = request.get("user_fields")
         
         if not query:
             return {"success": False, "error": "Поле 'query' обязательно"}
@@ -92,7 +162,8 @@ async def api_generate_document(request: dict):
         result = await generate_document(
             user_query=query,
             output_format=output_format,
-            force_doc_type=force_doc_type
+            force_doc_type=force_doc_type,
+            user_fields=user_fields
         )
         
         # Формируем URL-ы для скачивания

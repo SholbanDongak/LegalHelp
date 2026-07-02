@@ -1,18 +1,26 @@
 В [court_name]
-Истец: [plaintiff_name], адрес: [plaintiff_address]
-Ответчик: [defendant_name], адрес: [defendant_address]
 
-Исковое заявление о [суть требований]
+Истцы:
+[plaintiffs]
 
-[Изложить обстоятельства дела, ссылаясь на доказательства: grounds]
+Ответчики:
+[defendants]
 
-На основании ст. [статьи закона],
+Третьи лица:
+[third_parties]
+
+Исковое заявление о [claim_title]
+
+[factual_circumstances]
+
+На основании ст. [legal_basis],
 
 ПРОШУ:
-[изложить требования]
+[claim_subject]
+
+Госпошлина: [state_duty] руб.
 
 Приложение:
-1. Копия искового заявления для ответчика.
-2. Документы, подтверждающие обстоятельства.
+[attachments]
 
 [date]                           _________________ ([plaintiff_name])
