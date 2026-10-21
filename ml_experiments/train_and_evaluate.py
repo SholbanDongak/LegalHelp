@@ -46,9 +46,6 @@ text_features = "chunk"
 numeric_features = [
     "chunk_length",
     "query_length",
-    "num_legal_terms",
-    "has_article_number",
-    "bm25_hint",
     "rank",
 ]
 
