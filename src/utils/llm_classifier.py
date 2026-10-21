@@ -2,12 +2,13 @@
 LLM-классификатор правовых ситуаций.
 Использует LLaMA 3.1:8b для понимания смысла запроса.
 """
+
+import asyncio
 import json
 import re
 from typing import Dict, Optional
-from ollama import AsyncClient
-import asyncio
 
+from ollama import AsyncClient
 
 # Промпт для LLM — чёткие инструкции + список типов
 CLASSIFICATION_PROMPT = """Ты — эксперт-юрист, который определяет тип юридического документа по запросу гражданина.
@@ -62,7 +63,7 @@ CLASSIFICATION_PROMPT = """Ты — эксперт-юрист, который о
 async def classify_with_llm_async(query: str) -> Dict:
     """
     Асинхронная классификация через LLaMA.
-    
+
     Returns:
         {
             'type': 'claim_type',
@@ -70,46 +71,42 @@ async def classify_with_llm_async(query: str) -> Dict:
             'reason': 'обоснование'
         }
     """
-    client = AsyncClient(host='http://127.0.0.1:11434')
-    
+    client = AsyncClient(host="http://127.0.0.1:11434")
+
     try:
         response = await client.chat(
-            model='llama3.1:8b',
+            model="llama3.1:8b",
             messages=[
                 {"role": "system", "content": CLASSIFICATION_PROMPT},
-                {"role": "user", "content": f"Запрос пользователя: {query}"}
+                {"role": "user", "content": f"Запрос пользователя: {query}"},
             ],
             options={
-                'temperature': 0.1,  # Минимальная случайность
-                'top_p': 0.9,
-                'num_predict': 200
-            }
+                "temperature": 0.1,  # Минимальная случайность
+                "top_p": 0.9,
+                "num_predict": 200,
+            },
         )
-        
-        answer = response['message']['content'].strip()
-        
+
+        answer = response["message"]["content"].strip()
+
         # Извлекаем JSON из ответа
-        json_match = re.search(r'\{[^}]+\}', answer)
+        json_match = re.search(r"\{[^}]+\}", answer)
         if json_match:
             result = json.loads(json_match.group())
             return {
-                'type': result.get('type', 'unknown'),
-                'confidence': float(result.get('confidence', 0.5)),
-                'reason': result.get('reason', 'LLM классификация')
+                "type": result.get("type", "unknown"),
+                "confidence": float(result.get("confidence", 0.5)),
+                "reason": result.get("reason", "LLM классификация"),
             }
         else:
             return {
-                'type': 'unknown',
-                'confidence': 0.0,
-                'reason': f'LLM не вернул JSON: {answer[:100]}'
+                "type": "unknown",
+                "confidence": 0.0,
+                "reason": f"LLM не вернул JSON: {answer[:100]}",
             }
-            
+
     except Exception as e:
-        return {
-            'type': 'unknown',
-            'confidence': 0.0,
-            'reason': f'Ошибка LLM: {str(e)}'
-        }
+        return {"type": "unknown", "confidence": 0.0, "reason": f"Ошибка LLM: {str(e)}"}
 
 
 def classify_with_llm(query: str) -> Dict:
@@ -119,6 +116,7 @@ def classify_with_llm(query: str) -> Dict:
         if loop.is_running():
             # Если уже в event loop — используем run_coroutine_threadsafe
             import concurrent.futures
+
             with concurrent.futures.ThreadPoolExecutor() as pool:
                 future = pool.submit(asyncio.run, classify_with_llm_async(query))
                 return future.result()
@@ -133,10 +131,13 @@ if __name__ == "__main__":
     print("=" * 70)
     print("ТЕСТЫ LLM-КЛАССИФИКАТОРА (LLaMA 3.1:8b)")
     print("=" * 70)
-    
+
     # СЛОЖНЫЕ СЛУЧАИ — разговорный язык
     tests = [
-        ("Простой рабочий", "хочу деньги мне не дали работал 4 недели но начальник не дает денег"),
+        (
+            "Простой рабочий",
+            "хочу деньги мне не дали работал 4 недели но начальник не дает денег",
+        ),
         ("Пенсионер", "обманули в пенсионном не дают пенсию хотя стаж есть"),
         ("Молодая мама", "муж ушёл и не даёт деньги на ребёнка что делать"),
         ("Пожилой человек", "сосед взял в долг тысячу долларов и не отдаёт уже год"),
@@ -145,9 +146,12 @@ if __name__ == "__main__":
         ("Юридический", "невыплата заработной платы свыше 15 дней"),
         ("Смешанный", "в мэрии мне отказали в справке о регистрации незаконно"),
         ("Очень короткий", "развод"),
-        ("Очень длинный", "я работал в ООО Ромашка с января по март 2024 года зарплату мне не платили хотя я ходил на работу каждый день начальник обещал что заплатит потом но так и не заплатил теперь я хочу вернуть свои деньги"),
+        (
+            "Очень длинный",
+            "я работал в ООО Ромашка с января по март 2024 года зарплату мне не платили хотя я ходил на работу каждый день начальник обещал что заплатит потом но так и не заплатил теперь я хочу вернуть свои деньги",
+        ),
     ]
-    
+
     for name, query in tests:
         print(f"\n👤 {name}: '{query}'")
         result = classify_with_llm(query)

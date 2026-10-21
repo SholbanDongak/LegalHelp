@@ -1,0 +1,38 @@
+[tool.poetry]
+name = "legalhelp"
+version = "0.1.0"
+description = "LegalHelp — локальный юридический AI-ассистент на RAG"
+authors = ["Sholban Dongak"]
+readme = "README.md"
+package-mode = false
+
+[tool.poetry.dependencies]
+python = "^3.10"
+fastapi = "*"
+uvicorn = { extras = ["standard"], version = "*" }
+chromadb = "*"
+sentence-transformers = "*"
+pdfplumber = "*"
+requests = "*"
+python-multipart = "*"
+pydantic = "*"
+pydantic-settings = "*"
+python-dotenv = "*"
+tqdm = "*"
+numpy = "*"
+scikit-learn = "*"
+matplotlib = "*"
+seaborn = "*"
+pandas = "*"
+tabulate = "*"
+
+[tool.poetry.group.dev.dependencies]
+black = "*"
+flake8 = "*"
+isort = "*"
+pre-commit = "*"
+pytest = "*"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"

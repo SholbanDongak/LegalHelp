@@ -1,5 +1,6 @@
 import os
 import xml.etree.ElementTree as ET
+
 import chromadb
 from chromadb.utils import embedding_functions
 from langchain_text_splitters import RecursiveCharacterTextSplitter
@@ -13,21 +14,25 @@ MODEL_NAME = "all-MiniLM-L6-v2"
 
 print("Подключение к ChromaDB...")
 client = chromadb.PersistentClient(path=CHROMA_PATH)
-embedding_fn = embedding_functions.SentenceTransformerEmbeddingFunction(model_name=MODEL_NAME)
+embedding_fn = embedding_functions.SentenceTransformerEmbeddingFunction(
+    model_name=MODEL_NAME
+)
 
 # НЕ УДАЛЯЕМ коллекцию, а получаем существующую или создаём новую
 try:
     collection = client.get_collection(COLLECTION_NAME)
     print(f"Коллекция '{COLLECTION_NAME}' уже существует, добавляем новые документы...")
 except:
-    collection = client.create_collection(name=COLLECTION_NAME, embedding_function=embedding_fn)
+    collection = client.create_collection(
+        name=COLLECTION_NAME, embedding_function=embedding_fn
+    )
     print(f"Коллекция '{COLLECTION_NAME}' создана...")
 
 # Загружаем уже существующие ID документов (чтобы не дублировать)
 existing_ids = set()
 try:
     existing = collection.get()
-    existing_ids = set(existing['ids'])
+    existing_ids = set(existing["ids"])
     print(f"Найдено уже загруженных документов: {len(existing_ids)}")
 except:
     pass
@@ -36,7 +41,7 @@ text_splitter = RecursiveCharacterTextSplitter(
     chunk_size=CHUNK_SIZE,
     chunk_overlap=CHUNK_OVERLAP,
     separators=["\n\n", "\n", " ", ""],
-    length_function=len
+    length_function=len,
 )
 
 total_chunks = 0
@@ -50,7 +55,7 @@ for filename in os.listdir(XML_DIR):
         doc_id = filename.replace(".xml", "")
         if doc_id in existing_ids:
             continue
-            
+
         tree = ET.parse(filepath)
         root = tree.getroot()
         text_elem = root.find(".//text")
@@ -67,12 +72,14 @@ for filename in os.listdir(XML_DIR):
             collection.add(
                 ids=[chunk_id],
                 documents=[chunk],
-                metadatas=[{"source": doc_id, "filename": filename}]
+                metadatas=[{"source": doc_id, "filename": filename}],
             )
             total_chunks += 1
         files_processed += 1
         if files_processed % 100 == 0:
-            print(f"Добавлено {files_processed} новых файлов, создано {total_chunks} чанков")
+            print(
+                f"Добавлено {files_processed} новых файлов, создано {total_chunks} чанков"
+            )
     except Exception as e:
         print(f"Ошибка в {filename}: {e}")
 

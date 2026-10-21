@@ -1,20 +1,32 @@
 import json
+
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
 from sentence_transformers import SentenceTransformer
 from sklearn.metrics.pairwise import cosine_similarity
-import matplotlib.pyplot as plt
 
 models = {
     "all-MiniLM-L6-v2": SentenceTransformer("all-MiniLM-L6-v2"),
-    "intfloat/multilingual-e5-large": SentenceTransformer("intfloat/multilingual-e5-large"),
-    "cointegrated/rubert-tiny2": SentenceTransformer("cointegrated/rubert-tiny2")
+    "intfloat/multilingual-e5-large": SentenceTransformer(
+        "intfloat/multilingual-e5-large"
+    ),
+    "cointegrated/rubert-tiny2": SentenceTransformer("cointegrated/rubert-tiny2"),
 }
 
 test_pairs = [
-    ("неустойка по ГК РФ", "Неустойка – денежная сумма, которую должник обязан уплатить кредитору при просрочке"),
-    ("апелляционная жалоба", "Статья 320 ГПК РФ: право апелляционного обжалования решений суда"),
-    ("возражение на судебный приказ", "Должник вправе подать возражение в течение 10 дней со дня получения приказа")
+    (
+        "неустойка по ГК РФ",
+        "Неустойка – денежная сумма, которую должник обязан уплатить кредитору при просрочке",
+    ),
+    (
+        "апелляционная жалоба",
+        "Статья 320 ГПК РФ: право апелляционного обжалования решений суда",
+    ),
+    (
+        "возражение на судебный приказ",
+        "Должник вправе подать возражение в течение 10 дней со дня получения приказа",
+    ),
 ]
 
 results = {}
@@ -29,7 +41,7 @@ for name, model in models.items():
     print(f"{name}: средняя косинусная близость = {np.mean(scores):.4f}")
 
 plt.figure(figsize=(8, 5))
-plt.bar(results.keys(), results.values(), color=['skyblue', 'orange', 'lightgreen'])
+plt.bar(results.keys(), results.values(), color=["skyblue", "orange", "lightgreen"])
 plt.xlabel("Модель эмбеддингов")
 plt.ylabel("Средняя косинусная близость")
 plt.title("Сравнение моделей эмбеддингов для юридических текстов")

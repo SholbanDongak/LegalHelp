@@ -2,34 +2,38 @@
 Главный модуль генерации юридических документов.
 Объединяет все компоненты: маппинг → извлечение полей → экспорт.
 """
+
 import asyncio
 import os
 from datetime import datetime
 from typing import Dict, Optional, Tuple
 
-from src.document_generator.template_mapper import map_query_to_template
-from src.document_generator.field_extractor import extract_fields
 from src.document_generator.docx_exporter import (
-    load_template_text, fill_template, create_docx, ensure_output_dir
+    create_docx,
+    ensure_output_dir,
+    fill_template,
+    load_template_text,
 )
+from src.document_generator.field_extractor import extract_fields
 from src.document_generator.pdf_exporter import create_pdf
+from src.document_generator.template_mapper import map_query_to_template
 
 
 async def generate_document(
     user_query: str,
     output_format: str = "both",
     force_doc_type: Optional[str] = None,
-    user_fields: Optional[Dict] = None
+    user_fields: Optional[Dict] = None,
 ) -> Dict:
     """
     Главный пайплайн генерации документа.
-    
+
     Args:
         user_query: Текст запроса пользователя
         output_format: Формат вывода ("docx", "pdf" или "both")
         force_doc_type: Принудительный тип документа (если None — определяется автоматически)
         user_fields: Словарь с полями от пользователя (если None — извлекаются через LLM)
-    
+
     Returns:
         Словарь с результатами:
         {
@@ -51,9 +55,9 @@ async def generate_document(
         "filled_text": "",
         "docx_path": None,
         "pdf_path": None,
-        "error": None
+        "error": None,
     }
-    
+
     try:
         # Шаг 1: Определяем тип документа
         if force_doc_type:
@@ -61,69 +65,73 @@ async def generate_document(
             confidence = 1.0
         else:
             doc_type, confidence = map_query_to_template(user_query)
-        
+
         if not doc_type:
-            result["error"] = "Не удалось определить тип документа. Попробуйте сформулировать запрос более конкретно."
+            result["error"] = (
+                "Не удалось определить тип документа. Попробуйте сформулировать запрос более конкретно."
+            )
             return result
-        
+
         result["doc_type"] = doc_type
         result["confidence"] = confidence
         print(f"📋 Тип документа: {doc_type} (уверенность: {confidence:.2f})")
-        
+
         # Шаг 2: Загружаем шаблон
         template = load_template_text(doc_type)
         if not template:
             result["error"] = f"Шаблон для типа '{doc_type}' не найден"
             return result
-        
+
         # Шаг 3: Извлекаем поля через LLM, затем дополняем/перезаписываем user_fields
         llm_fields = await extract_fields(user_query, doc_type)
         print(f"📝 LLM извлёк полей: {len([v for v in llm_fields.values() if v])}")
-        
+
         if user_fields:
             # Объединяем: user_fields имеют приоритет
             fields = {**llm_fields, **user_fields}
-            print(f"📝 Объединено с user_fields: {len([v for v in fields.values() if v])}")
+            print(
+                f"📝 Объединено с user_fields: {len([v for v in fields.values() if v])}"
+            )
         else:
             fields = llm_fields
-        
+
         result["fields"] = fields
-        
+
         # Шаг 4: Заполняем шаблон
         filled_text = fill_template(template, fields)
         result["filled_text"] = filled_text
-        
+
         # Шаг 5: Создаём файлы
         ensure_output_dir()
-        
+
         if output_format in ("docx", "both"):
             docx_path = create_docx(filled_text, doc_type, fields)
             result["docx_path"] = docx_path
-        
+
         if output_format in ("pdf", "both"):
             pdf_path = create_pdf(filled_text, doc_type, fields)
             result["pdf_path"] = pdf_path
-        
+
         result["success"] = True
         print(f"✅ Документ успешно сгенерирован!")
-        
+
     except Exception as e:
         result["error"] = f"Ошибка при генерации документа: {str(e)}"
         print(f"❌ {result['error']}")
-    
+
     return result
 
 
 def list_available_templates() -> Dict[str, str]:
     """
     Возвращает список доступных шаблонов документов.
-    
+
     Returns:
         Словарь {doc_type: описание}
     """
     templates_dir = "./templates"
     templates = {}
-    
+
     descriptions = {
         "claim_consumer": "Иск о защите прав потребителей",
         "claim_labor_wage": "Иск о взыскании заработной платы",
@@ -148,51 +156,51 @@ def list_available_templates() -> Dict[str, str]:
         "application_to_cancel_default_judgment": "Заявление об отмене заочного решения",
         "private_complaint": "Частная жалоба",
         "supervisory_complaint": "Надзорная жалоба",
-        "admin_claim_kas": "Административное исковое заявление (КАС РФ)"
+        "admin_claim_kas": "Административное исковое заявление (КАС РФ)",
     }
-    
+
     if os.path.exists(templates_dir):
         for filename in os.listdir(templates_dir):
             if filename.endswith(".txt"):
                 doc_type = filename[:-4]
                 templates[doc_type] = descriptions.get(doc_type, doc_type)
-    
+
     return templates
 
 
 async def test_full_pipeline():
     """Тест полного пайплайна."""
     print("🧪 ТЕСТ ПОЛНОГО ПАЙПЛАЙНА")
-    print("="*60)
-    
+    print("=" * 60)
+
     # Тестовый запрос
     test_query = """
     Я купил телефон Samsung Galaxy S23 в магазине Технопарк 15 января 2026 года за 80000 рублей.
     Через неделю экран начал мерцать. Хочу вернуть деньги и компенсацию морального вреда 10000 рублей.
     Магазин находится по адресу г. Кызыл, ул. Ленина, д. 10.
     """
-    
+
     print(f"\n📝 Запрос пользователя:\n{test_query}")
     print()
-    
+
     # Запускаем пайплайн
     result = await generate_document(test_query, output_format="both")
-    
-    print("\n" + "="*60)
+
+    print("\n" + "=" * 60)
     print("📊 РЕЗУЛЬТАТ:")
     print(f"   ✅ Успех: {result['success']}")
     print(f"   📋 Тип документа: {result['doc_type']}")
     print(f"   🎯 Уверенность: {result['confidence']:.2f}")
     print(f"   📝 Заполнено полей: {len([v for v in result['fields'].values() if v])}")
-    
-    if result['docx_path']:
+
+    if result["docx_path"]:
         print(f"   📄 DOCX: {result['docx_path']}")
-    if result['pdf_path']:
+    if result["pdf_path"]:
         print(f"   📄 PDF: {result['pdf_path']}")
-    if result['error']:
+    if result["error"]:
         print(f"   ❌ Ошибка: {result['error']}")
-    
-    print("\n" + "="*60)
+
+    print("\n" + "=" * 60)
     print("📚 ДОСТУПНЫЕ ШАБЛОНЫ:")
     templates = list_available_templates()
     for doc_type, description in sorted(templates.items()):

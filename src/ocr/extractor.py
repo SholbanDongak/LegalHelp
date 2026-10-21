@@ -1,9 +1,11 @@
 import os
+
 import easyocr
 from pdf2image import convert_from_path
 
 # Инициализация EasyOCR один раз при импорте модуля
-reader = easyocr.Reader(['ru', 'en'], gpu=False)
+reader = easyocr.Reader(["ru", "en"], gpu=False)
+
 
 def extract_text_from_file(file_path: str) -> str:
     """
@@ -12,7 +14,7 @@ def extract_text_from_file(file_path: str) -> str:
     """
     ext = os.path.splitext(file_path)[1].lower()
     try:
-        if ext == '.pdf':
+        if ext == ".pdf":
             # Конвертируем PDF в список изображений
             images = convert_from_path(file_path, dpi=300)
             full_text = []

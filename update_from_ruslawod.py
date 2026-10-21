@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 
+import logging
 import os
 import shutil
 import subprocess
 import sys
-import logging
 from pathlib import Path
 
 PROJECT_DIR = Path.home() / "LegalHelp"
@@ -17,13 +17,11 @@ LOG_FILE = PROJECT_DIR / "logs" / "update.log"
 LOG_FILE.parent.mkdir(parents=True, exist_ok=True)
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(levelname)s - %(message)s',
-    handlers=[
-        logging.FileHandler(LOG_FILE),
-        logging.StreamHandler(sys.stdout)
-    ]
+    format="%(asctime)s - %(levelname)s - %(message)s",
+    handlers=[logging.FileHandler(LOG_FILE), logging.StreamHandler(sys.stdout)],
 )
 logger = logging.getLogger(__name__)
+
 
 def update_repo():
     logger.info("Обновление репозитория RusLawOD...")
@@ -33,6 +31,7 @@ def update_repo():
         logger.error("Ошибка git pull: " + result.stderr)
         sys.exit(1)
     logger.info(result.stdout.strip())
+
 
 def copy_new_xml():
     logger.info("Поиск новых XML-файлов...")
@@ -50,10 +49,12 @@ def copy_new_xml():
         logger.info(f"Скопирован: {f.name}")
     return len(new_files)
 
+
 def run_load_script():
     logger.info("Запуск load_to_chromadb.py...")
     os.chdir(PROJECT_DIR)
     subprocess.run(["python", "load_to_chromadb.py"], check=True)
+
 
 def main():
     if not REPO_DIR.exists():
@@ -69,6 +70,7 @@ def main():
         run_load_script()
     else:
         logger.info("Обновление не требуется.")
+
 
 if __name__ == "__main__":
     main()

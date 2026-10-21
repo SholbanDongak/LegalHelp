@@ -8,25 +8,33 @@ def classify_document(text: str) -> str:
     """
     text_lower = text.lower()
 
-    if any(word in text_lower for word in ['налоговая', 'фнс', 'предоставить документы']):
+    if any(
+        word in text_lower for word in ["налоговая", "фнс", "предоставить документы"]
+    ):
         return "fns"
 
-    if any(word in text_lower for word in ['прокуратура', 'прокурор', 'представление']):
+    if any(word in text_lower for word in ["прокуратура", "прокурор", "представление"]):
         return "prosecutor"
 
-    if any(word in text_lower for word in ['суд', 'определение', 'исковое заявление']):
+    if any(word in text_lower for word in ["суд", "определение", "исковое заявление"]):
         return "court"
 
-    if any(word in text_lower for word in ['претензия', 'оферта', 'договор', 'рекламация']):
+    if any(
+        word in text_lower for word in ["претензия", "оферта", "договор", "рекламация"]
+    ):
         return "counterparty"
 
-    if any(word in text_lower for word in ['роскомнадзор', 'персональные данные', '152-фз']):
+    if any(
+        word in text_lower for word in ["роскомнадзор", "персональные данные", "152-фз"]
+    ):
         return "roskomnadzor"
 
-    if any(word in text_lower for word in ['фас', 'антимонопольная', 'жалоба']):
+    if any(word in text_lower for word in ["фас", "антимонопольная", "жалоба"]):
         return "fas"
 
-    if any(word in text_lower for word in ['трудовая инспекция', 'гит', 'охрана труда']):
+    if any(
+        word in text_lower for word in ["трудовая инспекция", "гит", "охрана труда"]
+    ):
         return "labor_inspection"
 
     return "other"

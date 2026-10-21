@@ -2,7 +2,9 @@ import asyncio
 import json
 import os
 import re
+
 from ollama import AsyncClient
+
 from src.unified_retriever import UnifiedRetriever
 from src.utils.ai_agent import analyze_request
 from src.verification.citation_verifier import CitationVerifier
@@ -13,16 +15,16 @@ TEMPLATES_DIR = "./templates"
 print("🔍 Инициализация UnifiedRetriever...")
 try:
     retriever = UnifiedRetriever()
-    
+
     # Получаем список доступных статей для верификации
     all_articles = set()
     for code_name, collection in retriever.collections.items():
         results = collection.get()
-        for metadata in results['metadatas']:
-            match = re.search(r'(\d+)', metadata.get('article_num', ''))
+        for metadata in results["metadatas"]:
+            match = re.search(r"(\d+)", metadata.get("article_num", ""))
             if match:
                 all_articles.add(match.group(1))
-    
+
     verifier = CitationVerifier(all_articles)
     print(f"✅ UnifiedRetriever инициализирован. Модель: {MODEL_NAME}")
     print(f"✅ Всего статей в базе: {len(all_articles)}")
@@ -31,6 +33,7 @@ except Exception as e:
     retriever = None
     verifier = None
 
+
 def load_template(subtype: str) -> str:
     path = os.path.join(TEMPLATES_DIR, f"{subtype}.txt")
     if not os.path.exists(path):
@@ -38,16 +41,20 @@ def load_template(subtype: str) -> str:
     with open(path, "r", encoding="utf-8") as f:
         return f.read()
 
+
 def fill_template(template: str, data: dict) -> str:
     for key, value in data.items():
         if value:
             template = template.replace(f"[{key}]", str(value))
     return template
 
-async def generate_answer_with_rag(query: str, company_name: str, inn: str, doc_type: str = "other") -> str:
+
+async def generate_answer_with_rag(
+    query: str, company_name: str, inn: str, doc_type: str = "other"
+) -> str:
     """Генерирует ответ с использованием RAG по всем кодексам."""
-    client = AsyncClient(host='http://127.0.0.1:11434')
-    
+    client = AsyncClient(host="http://127.0.0.1:11434")
+
     # Анализируем запрос через AI-агент
     print(f"\n🤖 Анализ запроса через AI-агент...")
     try:
@@ -56,10 +63,10 @@ async def generate_answer_with_rag(query: str, company_name: str, inn: str, doc_
     except Exception as e:
         print(f"⚠️  Ошибка AI-агента: {e}")
         agent_analysis = None
-    
+
     context = ""
     sources = []
-    
+
     if retriever:
         try:
             # Увеличен top_k до 15 для лучшего покрытия
@@ -69,16 +76,16 @@ async def generate_answer_with_rag(query: str, company_name: str, inn: str, doc_
             print(f"⚠️  Ошибка поиска: {e}")
             context = ""
             sources = []
-    
+
     # Формируем список уточняющих вопросов из AI-агента
     clarifying_questions_text = ""
-    if agent_analysis and agent_analysis.get('questions'):
-        questions = agent_analysis['questions']
+    if agent_analysis and agent_analysis.get("questions"):
+        questions = agent_analysis["questions"]
         clarifying_questions_text = "\n\nУТОЧНЯЮЩИЕ ВОПРОСЫ (задай их пользователю):\n"
         for i, q in enumerate(questions, 1):
             clarifying_questions_text += f"{i}. {q}\n"
         clarifying_questions_text += "\nВАЖНО: Сначала задай эти вопросы пользователю и дождись ответов. НЕ предлагай составить документ сразу!"
-    
+
     if context:
         system_prompt = f"""Ты — опытный юридический консультант, специалист по праву Российской Федерации. Ты ведёшь ДИАЛОГ с гражданином, как живой юрист на приёме.
 
@@ -104,40 +111,48 @@ async def generate_answer_with_rag(query: str, company_name: str, inn: str, doc_
     else:
         system_prompt = """Ты — юридический консультант. Отвечай на русском языке в официально-деловом стиле.
 Если не знаешь точного ответа, честно скажи, что нужно проконсультироваться с юристом."""
-    
+
     user_prompt = query
-    
+
     try:
         response = await client.chat(
             model=MODEL_NAME,
             messages=[
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
+                {"role": "user", "content": user_prompt},
             ],
-            options={
-                "temperature": 0.1,
-                "top_p": 0.9,
-                "num_predict": 1024
-            }
+            options={"temperature": 0.1, "top_p": 0.9, "num_predict": 1024},
         )
-        answer = response['message']['content']
-        
+        answer = response["message"]["content"]
+
         # Верификация цитат
         if verifier:
             is_valid, errors = verifier.verify(answer)
             if not is_valid:
-                warning = "\n\n⚠️ ВНИМАНИЕ: Некоторые упомянутые статьи не найдены в базе:\n"
+                warning = (
+                    "\n\n⚠️ ВНИМАНИЕ: Некоторые упомянутые статьи не найдены в базе:\n"
+                )
                 warning += "\n".join(f"  - {error}" for error in errors)
-                warning += "\nПожалуйста, проверьте информацию в официальных источниках."
+                warning += (
+                    "\nПожалуйста, проверьте информацию в официальных источниках."
+                )
                 answer += warning
-        
+
         # Добавляем источники
-        no_info_phrases = ["нет информации", "не содержится", "не регулируется", "не указано", "отсутствует"]
+        no_info_phrases = [
+            "нет информации",
+            "не содержится",
+            "не регулируется",
+            "не указано",
+            "отсутствует",
+        ]
         has_no_info = any(phrase in answer.lower() for phrase in no_info_phrases)
-        
-        answer_without_sources = re.sub(r'📚 Источники:.*$', '', answer, flags=re.DOTALL).strip()
+
+        answer_without_sources = re.sub(
+            r"📚 Источники:.*$", "", answer, flags=re.DOTALL
+        ).strip()
         is_short_no_info = len(answer_without_sources) < 200 and has_no_info
-        
+
         if sources and not is_short_no_info:
             unique_sources = []
             seen = set()
@@ -146,20 +161,23 @@ async def generate_answer_with_rag(query: str, company_name: str, inn: str, doc_
                 if source_key not in seen:
                     unique_sources.append(source)
                     seen.add(source_key)
-            
+
             answer += "\n\n📚 Источники:\n"
             for source in unique_sources:
                 answer += f"  - [{source['code_display']}] {source['metadata']}\n"
-        
+
         return answer
-        
+
     except Exception as e:
         print(f"❌ Ошибка при генерации ответа: {e}")
         return f"Ошибка при генерации ответа: {e}"
 
-async def generate_answer_async(query: str, company_name: str, inn: str, doc_type: str = "other") -> str:
-    client = AsyncClient(host='http://127.0.0.1:11434')
-    
+
+async def generate_answer_async(
+    query: str, company_name: str, inn: str, doc_type: str = "other"
+) -> str:
+    client = AsyncClient(host="http://127.0.0.1:11434")
+
     if doc_type == "judicial_review":
         try:
             data = json.loads(query)
@@ -174,24 +192,33 @@ async def generate_answer_async(query: str, company_name: str, inn: str, doc_typ
             response = await client.chat(
                 model=MODEL_NAME,
                 messages=[
-                    {"role": "system", "content": "Ты — опытный юрист. Отвечай только на русском языке. Строго следуй шаблону."},
-                    {"role": "user", "content": prompt}
+                    {
+                        "role": "system",
+                        "content": "Ты — опытный юрист. Отвечай только на русском языке. Строго следуй шаблону.",
+                    },
+                    {"role": "user", "content": prompt},
                 ],
-                options={"temperature": 0.1}
+                options={"temperature": 0.1},
             )
-            return response['message']['content']
+            return response["message"]["content"]
         except Exception as e:
             return f"Ошибка при генерации документа: {e}"
     else:
         return await generate_answer_with_rag(query, company_name, inn, doc_type)
 
-def generate_answer(query: str, company_name: str, inn: str, doc_type: str = "other") -> str:
+
+def generate_answer(
+    query: str, company_name: str, inn: str, doc_type: str = "other"
+) -> str:
     try:
         loop = asyncio.get_running_loop()
     except RuntimeError:
         return asyncio.run(generate_answer_async(query, company_name, inn, doc_type))
     else:
         import concurrent.futures
+
         with concurrent.futures.ThreadPoolExecutor() as executor:
-            future = executor.submit(asyncio.run, generate_answer_async(query, company_name, inn, doc_type))
+            future = executor.submit(
+                asyncio.run, generate_answer_async(query, company_name, inn, doc_type)
+            )
             return future.result()

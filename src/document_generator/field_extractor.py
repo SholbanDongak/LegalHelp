@@ -1,10 +1,12 @@
 """
 Извлечение полей из запроса пользователя с помощью LLM.
 """
+
 import asyncio
 import json
 import re
-from typing import Dict, Any, Optional
+from typing import Any, Dict, Optional
+
 from ollama import AsyncClient
 
 MODEL_NAME = "llama3.1:8b"
@@ -21,7 +23,7 @@ FIELD_SCHEMAS = {
         "amount": "Сумма (число)",
         "defect_description": "Описание недостатка",
         "moral_damage": "Сумма морального вреда (число)",
-        "date": "Дата покупки (ДД.ММ.ГГГГ)"
+        "date": "Дата покупки (ДД.ММ.ГГГГ)",
     },
     "claim_labor_wage": {
         "court_name": "Наименование суда",
@@ -32,7 +34,7 @@ FIELD_SCHEMAS = {
         "employment_date": "Дата начала работы (ДД.ММ.ГГГГ)",
         "wage_period": "Период задолженности",
         "wage_amount": "Сумма задолженности (число)",
-        "date": "Дата (ДД.ММ.ГГГГ)"
+        "date": "Дата (ДД.ММ.ГГГГ)",
     },
     "claim_civil_general": {
         "court_name": "Наименование суда",
@@ -43,7 +45,7 @@ FIELD_SCHEMAS = {
         "claim_description": "Описание требований",
         "amount": "Сумма иска (число)",
         "grounds": "Основания иска",
-        "date": "Дата (ДД.ММ.ГГГГ)"
+        "date": "Дата (ДД.ММ.ГГГГ)",
     },
     "appeal_civil": {
         "appeal_court_name": "Наименование апелляционного суда",
@@ -54,30 +56,31 @@ FIELD_SCHEMAS = {
         "court_name": "Наименование суда первой инстанции",
         "decision_date": "Дата решения (ДД.ММ.ГГГГ)",
         "grounds": "Основания для отмены решения",
-        "date": "Дата (ДД.ММ.ГГГГ)"
-    }
+        "date": "Дата (ДД.ММ.ГГГГ)",
+    },
 }
+
 
 async def extract_fields(user_query: str, doc_type: str) -> Dict[str, Any]:
     """
     Извлекает поля из запроса пользователя с помощью LLM.
-    
+
     Args:
         user_query: Текст запроса пользователя
         doc_type: Тип документа (например, "claim_consumer")
-    
+
     Returns:
         Словарь с извлечёнными полями
     """
     schema = FIELD_SCHEMAS.get(doc_type, {})
-    
+
     if not schema:
         print(f"⚠️  Схема для типа {doc_type} не найдена")
         return {}
-    
+
     # Формируем промпт для LLM
     schema_text = "\n".join([f"- {key}: {desc}" for key, desc in schema.items()])
-    
+
     system_prompt = f"""Ты — помощник для заполнения юридических документов.
 Извлеки из текста пользователя следующие поля и верни их в формате JSON.
 
@@ -94,43 +97,39 @@ async def extract_fields(user_query: str, doc_type: str) -> Dict[str, Any]:
 
 ПРИМЕР ПРАВИЛЬНОГО ОТВЕТА (если ФИО не указано):
 {{"court_name": null, "plaintiff_name": null, "amount": "50000"}}"""
-    
+
     user_prompt = f"Текст пользователя:\n{user_query}"
-    
+
     try:
-        client = AsyncClient(host='http://127.0.0.1:11434')
+        client = AsyncClient(host="http://127.0.0.1:11434")
         response = await client.chat(
             model=MODEL_NAME,
             messages=[
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_prompt}
+                {"role": "user", "content": user_prompt},
             ],
-            options={
-                "temperature": 0.1,
-                "top_p": 0.9,
-                "num_predict": 512
-            }
+            options={"temperature": 0.1, "top_p": 0.9, "num_predict": 512},
         )
-        
-        answer = response['message']['content']
-        
+
+        answer = response["message"]["content"]
+
         # Извлекаем JSON из ответа
-        json_match = re.search(r'\{[^}]+\}', answer, re.DOTALL)
+        json_match = re.search(r"\{[^}]+\}", answer, re.DOTALL)
         if json_match:
             json_str = json_match.group(0)
             fields = json.loads(json_str)
-            
+
             # Заменяем пустые строки на null
             for key in fields:
                 if fields[key] == "":
                     fields[key] = None
-            
+
             print(f"✅ Извлечено полей: {len(fields)}")
             return fields
         else:
             print(f"⚠️  JSON не найден в ответе LLM")
             return {}
-            
+
     except Exception as e:
         print(f"❌ Ошибка извлечения полей: {e}")
         return {}
@@ -144,14 +143,14 @@ def test_extraction():
     Магазин находится по адресу г. Кызыл, ул. Ленина, д. 10.
     Мой адрес: г. Кызыл, ул. Пушкина, д. 5, кв. 15.
     """
-    
+
     print("🧪 ТЕСТ ИЗВЛЕЧЕНИЯ ПОЛЕЙ (ИСПРАВЛЕННАЯ ВЕРСИЯ)")
-    print("="*60)
+    print("=" * 60)
     print(f"Запрос: {test_query}")
     print()
-    
+
     fields = asyncio.run(extract_fields(test_query, "claim_consumer"))
-    
+
     print("\n✅ Извлечённые поля:")
     for key, value in fields.items():
         if value is None:

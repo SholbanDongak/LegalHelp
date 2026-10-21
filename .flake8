@@ -1,0 +1,27 @@
+[flake8]
+max-line-length = 120
+extend-ignore =
+    E203,
+    E501,
+    W503,
+    F401,
+    F541,
+    F841,
+    E722,
+    B001,
+    B007,
+    B008,
+    E402
+exclude =
+    .git,
+    __pycache__,
+    legal_env,
+    ml_env,
+    venv,
+    .venv,
+    RusLawOD_XML,
+    RusLawOD_repo,
+    legal_chromadb,
+    legal-frontend,
+    node_modules,
+    dist,
